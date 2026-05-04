@@ -2,6 +2,7 @@
 import math
 from app.agents.base import BaseAgent
 from app.core.state import AnalysisState
+import pandas as pd
 
 
 class GrahamAgent(BaseAgent):
@@ -21,6 +22,15 @@ class GrahamAgent(BaseAgent):
 
     # 默认AAA债券收益率（当未提供时）
     DEFAULT_AAA_BOND_YIELD = 3.0
+
+    def __init__(self, tushare_service):
+        """
+        初始化格雷厄姆Agent
+
+        Args:
+            tushare_service: Tushare数据服务实例
+        """
+        super().__init__(tushare_service)
 
     @property
     def name(self) -> str:
@@ -69,35 +79,147 @@ class GrahamAgent(BaseAgent):
         return result
 
     async def _get_stock_data(self, stock_code: str) -> dict:
-        """获取股票数据"""
-        # 实际实现应从tushare获取数据
-        # 这里返回模拟数据用于演示
-        import random
-        random.seed(hash(stock_code) % 10000)  # 确保同一股票代码返回相同数据
+        """
+        从tushare获取股票数据
 
-        eps = round(random.uniform(1, 10), 2)
-        bvps = round(random.uniform(10, 50), 2)
-        price = round(random.uniform(20, 100), 2)
+        Args:
+            stock_code: 股票代码
 
-        return {
-            "symbol": stock_code,
-            "name": f"股票{stock_code}",
-            "price": price,
-            "metrics": {
-                "eps": eps,
-                "bvps": bvps,
-                "pe_ratio": round(price / eps, 2) if eps > 0 else 0,
-                "pb_ratio": round(price / bvps, 2) if bvps > 0 else 0,
-                "roe": round(random.uniform(5, 25), 2),
-                "debt_ratio": round(random.uniform(20, 70), 2),
-                "current_ratio": round(random.uniform(0.8, 3.0), 2),
-                "dividend_yield": round(random.uniform(0, 6), 2),
-                "revenue_growth": round(random.uniform(-5, 25), 2),
-                "profit_growth": round(random.uniform(-10, 30), 2),
-            },
-            "net_net_working_capital": random.uniform(15, 80),
-            "aaa_bond_yield": 3.0,
-        }
+        Returns:
+            包含股票数据的字典
+        """
+        try:
+            # 获取完整基本面数据
+            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+
+            # 获取日线数据（用于获取价格）
+            import asyncio
+            loop = asyncio.get_event_loop()
+
+            # 格式化股票代码
+            if "." not in stock_code:
+                if stock_code.startswith("6") or stock_code.startswith("5"):
+                    formatted_code = f"{stock_code}.SH"
+                else:
+                    formatted_code = f"{stock_code}.SZ"
+            else:
+                formatted_code = stock_code
+
+            # 获取最新日线数据
+            daily_df = await loop.run_in_executor(
+                None,
+                lambda: self.tushare.api.daily(
+                    ts_code=formatted_code,
+                    start_date="20200101",  # 从2020年开始
+                    end_date=""
+                )
+            )
+
+            if not daily_df.empty:
+                latest_daily = daily_df.iloc[0]
+                price = latest_daily.get("close", 0)
+            else:
+                price = 0
+
+            if not fundamentals:
+                # 如果无法获取真实数据，返回空数据
+                return {
+                    "symbol": stock_code,
+                    "name": f"股票{stock_code}",
+                    "price": price,
+                    "metrics": {},
+                    "net_net_working_capital": 0,
+                    "aaa_bond_yield": self.DEFAULT_AAA_BOND_YIELD,
+                }
+
+            # 解析daily_basic数据
+            daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
+            if not daily_basic.empty:
+                latest = daily_basic.iloc[0]
+                pe_ratio = latest.get("pe", 0)
+                pb_ratio = latest.get("pb", 0)
+            else:
+                pe_ratio = 0
+                pb_ratio = 0
+
+            # 解析利润表数据
+            income = fundamentals.get("income", pd.DataFrame())
+            if not income.empty:
+                latest_income = income.iloc[0]
+                basic_eps = latest_income.get("basic_eps", 0)
+                total_revenue = latest_income.get("total_revenue", 0)
+            else:
+                basic_eps = 0
+                total_revenue = 0
+
+            # 解析资产负债表数据
+            balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
+            if not balancesheet.empty:
+                latest_bs = balancesheet.iloc[0]
+                total_assets = latest_bs.get("total_assets", 0)
+                equity = latest_bs.get("equities_parent_comp", 0)
+                total_liab = latest_bs.get("total_liab", 0)
+                current_assets = latest_bs.get("current_assets", 0)
+                current_liab = latest_bs.get("current_liab", 0)
+            else:
+                total_assets = 0
+                equity = 0
+                total_liab = 0
+                current_assets = 0
+                current_liab = 0
+
+            # 解析现金流量表数据
+            cashflow = fundamentals.get("cashflow", pd.DataFrame())
+            if not cashflow.empty:
+                latest_cf = cashflow.iloc[0]
+                net_profit = latest_cf.get("net_profit", 0)
+            else:
+                net_profit = 0
+
+            # 计算衍生指标
+            roe = (net_profit / equity * 100) if equity > 0 else 0
+            debt_ratio = (total_liab / total_assets * 100) if total_assets > 0 else 0
+            current_ratio = (current_assets / current_liab) if current_liab > 0 else 0
+
+            # 计算BVPS (每股净资产)
+            # BVPS = 股东权益 / 总股本，这里简化处理
+            bvps = (equity / 100000000) if equity > 0 else 0  # 简化假设
+
+            # 计算净净营运资本 (Net-Net Working Capital)
+            # Net-Net = 流动资产 - 总负债
+            net_net_working_capital = (current_assets - total_liab) / 100000000  # 转换为亿元
+
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "price": float(price),
+                "metrics": {
+                    "eps": float(basic_eps),
+                    "bvps": float(bvps),
+                    "pe_ratio": float(pe_ratio) if pe_ratio else 0,
+                    "pb_ratio": float(pb_ratio) if pb_ratio else 0,
+                    "roe": float(roe),
+                    "debt_ratio": float(debt_ratio),
+                    "current_ratio": float(current_ratio),
+                    "dividend_yield": 0,  # 需要额外的股息数据接口
+                    "revenue_growth": 0,  # 需要历史数据计算同比
+                    "profit_growth": 0,  # 需要历史数据计算同比
+                },
+                "net_net_working_capital": float(net_net_working_capital),
+                "aaa_bond_yield": self.DEFAULT_AAA_BOND_YIELD,
+            }
+
+        except Exception as e:
+            print(f"获取股票 {stock_code} 数据失败: {e}")
+            # 返回空数据
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "price": 0,
+                "metrics": {},
+                "net_net_working_capital": 0,
+                "aaa_bond_yield": self.DEFAULT_AAA_BOND_YIELD,
+            }
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""

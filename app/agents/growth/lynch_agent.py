@@ -1,6 +1,7 @@
 """彼得·林奇风格GARP投资Agent"""
 from app.agents.base import BaseAgent
 from app.core.state import AnalysisState
+import pandas as pd
 
 
 class LynchAgent(BaseAgent):
@@ -41,6 +42,15 @@ class LynchAgent(BaseAgent):
         "turnaround": "困境反转股",
         "asset_play": "资产重组股"
     }
+
+    def __init__(self, tushare_service):
+        """
+        初始化Lynch Agent
+
+        Args:
+            tushare_service: Tushare数据服务实例
+        """
+        super().__init__(tushare_service)
 
     @property
     def name(self) -> str:
@@ -88,41 +98,117 @@ class LynchAgent(BaseAgent):
         return result
 
     async def _get_stock_data(self, stock_code: str) -> dict:
-        """获取股票数据"""
-        import random
-        random.seed(hash(stock_code) % 10000)
+        """
+        从tushare获取股票数据
 
-        pe_ratio = round(random.uniform(5, 50), 2)
-        profit_growth = round(random.uniform(-10, 50), 2)
-        revenue_growth = round(random.uniform(-5, 40), 2)
+        Args:
+            stock_code: 股票代码
 
-        return {
-            "symbol": stock_code,
-            "name": f"股票{stock_code}",
-            "metrics": {
-                "pe_ratio": pe_ratio,
-                "pb_ratio": round(random.uniform(0.8, 10), 2),
-                "roe": round(random.uniform(3, 30), 2),
-                "debt_ratio": round(random.uniform(15, 75), 2),
-                "revenue_growth": revenue_growth,
-                "profit_growth": profit_growth,
-                "dividend_yield": round(random.uniform(0, 8), 2),
-            },
-            "business_info": {
-                "industry": random.choice(["科技", "消费", "金融", "医药", "制造"]),
-                "main_product": random.choice(["软件", "硬件", "服务", "设备", "材料"]),
-                "is_dull_name": random.choice([True, False]),
-                "is_dull_business": random.choice([True, False]),
-                "has_subsidiary": random.choice([True, False]),
-                "is_in_ignored_sector": random.choice([True, False]),
-                "has_rumor": random.choice([True, False]),
-            },
-            "insider_info": {
-                "insider_buying": random.choice([True, False]),
-                "share_buyback": random.choice([True, False]),
-                "insider_holdings_pct": round(random.uniform(5, 40), 2),
-            },
-        }
+        Returns:
+            包含股票数据的字典
+        """
+        try:
+            # 获取完整基本面数据
+            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+
+            if not fundamentals:
+                # 如果无法获取真实数据，返回空数据
+                return {
+                    "symbol": stock_code,
+                    "name": f"股票{stock_code}",
+                    "metrics": {},
+                    "business_info": {},
+                    "insider_info": {},
+                }
+
+            # 解析daily_basic数据
+            daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
+            if not daily_basic.empty:
+                latest = daily_basic.iloc[0]
+                pe_ratio = latest.get("pe", 0)
+                pb_ratio = latest.get("pb", 0)
+                dividend_yield = latest.get("dv_ratio", 0)  # 股息率
+            else:
+                pe_ratio = 0
+                pb_ratio = 0
+                dividend_yield = 0
+
+            # 解析利润表数据
+            income = fundamentals.get("income", pd.DataFrame())
+            if not income.empty:
+                latest_income = income.iloc[0]
+                total_revenue = latest_income.get("total_revenue", 0)
+            else:
+                total_revenue = 0
+
+            # 解析资产负债表数据
+            balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
+            if not balancesheet.empty:
+                latest_bs = balancesheet.iloc[0]
+                total_assets = latest_bs.get("total_assets", 0)
+                equity = latest_bs.get("equities_parent_comp", 0)
+                total_liab = latest_bs.get("total_liab", 0)
+            else:
+                total_assets = 0
+                equity = 0
+                total_liab = 0
+
+            # 解析现金流量表数据
+            cashflow = fundamentals.get("cashflow", pd.DataFrame())
+            if not cashflow.empty:
+                latest_cf = cashflow.iloc[0]
+                net_profit = latest_cf.get("net_profit", 0)
+            else:
+                net_profit = 0
+
+            # 计算衍生指标
+            roe = (net_profit / equity * 100) if equity > 0 else 0
+            debt_ratio = (total_liab / total_assets * 100) if total_assets > 0 else 0
+
+            # 增长率（简化，需要历史数据计算同比）
+            revenue_growth = 0
+            profit_growth = 0
+
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "metrics": {
+                    "pe_ratio": float(pe_ratio) if pe_ratio else 0,
+                    "pb_ratio": float(pb_ratio) if pb_ratio else 0,
+                    "roe": float(roe),
+                    "debt_ratio": float(debt_ratio),
+                    "revenue_growth": float(revenue_growth),
+                    "profit_growth": float(profit_growth),
+                    "dividend_yield": float(dividend_yield),
+                },
+                "business_info": {
+                    # 这些信息需要额外的数据源或分析
+                    "industry": "未知",  # 需要行业分类数据
+                    "main_product": "未知",  # 需要产品信息
+                    "is_dull_name": False,  # 需要NLP分析
+                    "is_dull_business": False,  # 需要业务分析
+                    "has_subsidiary": None,  # 需要公司结构数据
+                    "is_in_ignored_sector": False,  # 需要市场关注度数据
+                    "has_rumor": False,  # 需要新闻舆情数据
+                },
+                "insider_info": {
+                    # 这些信息需要额外的数据接口
+                    "insider_buying": None,  # 需要 insider trading 数据
+                    "share_buyback": None,  # 需要回购公告数据
+                    "insider_holdings_pct": 0,  # 需要股权结构数据
+                },
+            }
+
+        except Exception as e:
+            print(f"获取股票 {stock_code} 数据失败: {e}")
+            # 返回空数据
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "metrics": {},
+                "business_info": {},
+                "insider_info": {},
+            }
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""

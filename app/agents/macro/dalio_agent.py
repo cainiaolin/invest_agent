@@ -3,6 +3,7 @@ from app.agents.base import BaseAgent
 from app.core.state import AnalysisState
 from typing import Dict, List, Optional
 from enum import Enum
+import pandas as pd
 
 
 class EconomicCycleStage(Enum):
@@ -47,6 +48,15 @@ class DalioAgent(BaseAgent):
         "gold": 0.075,            # 黄金
         "commodities": 0.075,     # 大宗商品
     }
+
+    def __init__(self, tushare_service):
+        """
+        初始化达里奥Agent
+
+        Args:
+            tushare_service: Tushare数据服务实例
+        """
+        super().__init__(tushare_service)
 
     @property
     def name(self) -> str:
@@ -93,27 +103,103 @@ class DalioAgent(BaseAgent):
         return result
 
     async def _get_stock_data(self, stock_code: str) -> dict:
-        """获取股票数据"""
-        import random
-        random.seed(hash(stock_code) % 10000)
+        """
+        从tushare获取股票数据
 
-        return {
-            "symbol": stock_code,
-            "name": f"股票{stock_code}",
-            "macro_indicators": {
-                "gdp_growth": round(random.uniform(-2, 10), 2),
-                "inflation_rate": round(random.uniform(-2, 10), 2),
-                "interest_rate": round(random.uniform(0, 8), 2),
-                "unemployment_rate": round(random.uniform(3, 10), 2),
-                "credit_growth": round(random.uniform(-10, 30), 2),
-                "debt_to_gdp": round(random.uniform(50, 300), 2),
-            },
-            "company_data": {
-                "beta": round(random.uniform(0.3, 2.5), 2),
-                "cyclical_sensitivity": round(random.uniform(0.3, 2.0), 2),
-                "industry": random.choice(["科技", "金融", "消费", "工业", "能源", "材料"]),
-            },
-        }
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            包含股票数据的字典
+        """
+        try:
+            # 获取完整基本面数据
+            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+
+            # 获取日线数据（用于计算beta）
+            import asyncio
+            loop = asyncio.get_event_loop()
+
+            # 格式化股票代码
+            if "." not in stock_code:
+                if stock_code.startswith("6") or stock_code.startswith("5"):
+                    formatted_code = f"{stock_code}.SH"
+                else:
+                    formatted_code = f"{stock_code}.SZ"
+            else:
+                formatted_code = stock_code
+
+            # 获取历史日线数据
+            daily_df = await loop.run_in_executor(
+                None,
+                lambda: self.tushare.api.daily(
+                    ts_code=formatted_code,
+                    start_date="20230101",
+                    end_date=""
+                )
+            )
+
+            if not fundamentals:
+                # 如果无法获取真实数据，返回空数据
+                return {
+                    "symbol": stock_code,
+                    "name": f"股票{stock_code}",
+                    "macro_indicators": {},
+                    "company_data": {},
+                }
+
+            # 解析资产负债表数据
+            balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
+            if not balancesheet.empty:
+                latest_bs = balancesheet.iloc[0]
+                total_assets = latest_bs.get("total_assets", 0)
+                equity = latest_bs.get("equities_parent_comp", 0)
+                total_liab = latest_bs.get("total_liab", 0)
+            else:
+                total_assets = 0
+                equity = 0
+                total_liab = 0
+
+            # 计算债务比率（简化）
+            debt_to_equity = (total_liab / equity) if equity > 0 else 0
+
+            # 计算波动率（用于周期敏感性估算）
+            if not daily_df.empty and len(daily_df) > 20:
+                returns = daily_df.head(20)["pct_chg"]
+                volatility = returns.std()
+                # 简化的周期敏感性估算（高波动率通常意味着高周期性）
+                cyclical_sensitivity = min(volatility / 2, 2.0)
+            else:
+                cyclical_sensitivity = 1.0
+
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "macro_indicators": {
+                    # 这些指标需要额外的宏观数据接口
+                    "gdp_growth": 0,  # 需要宏观经济数据
+                    "inflation_rate": 0,  # 需要CPI数据
+                    "interest_rate": 0,  # 需要利率数据
+                    "unemployment_rate": 0,  # 需要就业数据
+                    "credit_growth": 0,  # 需要信贷数据
+                    "debt_to_gdp": 0,  # 需要宏观债务数据
+                },
+                "company_data": {
+                    "beta": 1.0,  # 默认值，实际需要和市场指数对比计算
+                    "cyclical_sensitivity": float(cyclical_sensitivity),
+                    "industry": "未知",  # 需要行业分类数据
+                },
+            }
+
+        except Exception as e:
+            print(f"获取股票 {stock_code} 数据失败: {e}")
+            # 返回空数据
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "macro_indicators": {},
+                "company_data": {},
+            }
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""

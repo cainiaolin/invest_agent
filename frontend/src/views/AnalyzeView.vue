@@ -64,22 +64,76 @@
           <el-descriptions-item label="协作模式">{{ modeName }}</el-descriptions-item>
         </el-descriptions>
 
+        <el-card v-if="result.stock_info" class="stock-info-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <span style="font-weight: 600;">Tushare 实时数据 — {{ result.stock_info.trade_date }}</span>
+            </div>
+          </template>
+          <el-descriptions :column="4" border size="small">
+            <el-descriptions-item label="收盘价">
+              <span class="price">{{ result.stock_info.close.toFixed(2) }}</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="市盈率(PE TTM)">
+              {{ result.stock_info.pe_ttm.toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="市净率(PB)">
+              {{ result.stock_info.pb.toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="换手率(%)">
+              {{ result.stock_info.turnover_rate.toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="量比">
+              {{ result.stock_info.volume_ratio.toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="总市值(亿)">
+              {{ (result.stock_info.total_mv / 1e8).toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="流通市值(亿)">
+              {{ (result.stock_info.circ_mv / 1e8).toFixed(2) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="数据日期">
+              <el-tag type="info" size="small">{{ result.stock_info.trade_date }}</el-tag>
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
         <el-divider>Agent分析结果</el-divider>
 
         <el-table :data="result.agent_analyses" border>
-          <el-table-column prop="agent_name" label="Agent" width="120" />
-          <el-table-column prop="agent_type" label="类型" width="100" />
-          <el-table-column prop="action" label="建议" width="80">
-            <template #default="{ row }">
-              <el-tag :type="getActionType(row.action)">{{ actionName(row.action) }}</el-tag>
+          <el-table-column prop="agent_name" label="Agent" width="110" />
+          <el-table-column prop="agent_type" label="类型" width="80" />
+          <el-table-column label="当前价" width="90">
+            <template #default>
+              {{ result.stock_info?.close?.toFixed(2) ?? '-' }}
             </template>
           </el-table-column>
-          <el-table-column prop="confidence" label="置信度" width="100">
+          <el-table-column label="PE(TTM)" width="90">
+            <template #default>
+              {{ result.stock_info?.pe_ttm?.toFixed(2) ?? '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="PB" width="80">
+            <template #default>
+              {{ result.stock_info?.pb?.toFixed(2) ?? '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="action" label="建议" width="70">
+            <template #default="{ row }">
+              <el-tag :type="getActionType(row.action)" size="small">{{ actionName(row.action) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="confidence" label="置信度" width="80">
             <template #default="{ row }">
               {{ (row.confidence * 100).toFixed(1) }}%
             </template>
           </el-table-column>
-          <el-table-column prop="reasoning" label="分析理由" show-overflow-tooltip />
+          <el-table-column label="数据日期" width="100">
+            <template #default>
+              <el-tag type="info" size="small">{{ result.stock_info?.trade_date ?? '-' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="reasoning" label="分析理由" min-width="200" show-overflow-tooltip />
         </el-table>
 
         <el-divider v-if="result.final_decision">最终决策</el-divider>
@@ -119,11 +173,24 @@ interface FinalDecision {
   summary: string
 }
 
+interface StockInfo {
+  stock_name: string
+  trade_date: string
+  close: number
+  pe_ttm: number
+  pb: number
+  total_mv: number
+  circ_mv: number
+  turnover_rate: number
+  volume_ratio: number
+}
+
 interface AnalyzeResult {
   stock_code: string
   mode: string
   agent_analyses: AgentAnalysis[]
   final_decision: FinalDecision | null
+  stock_info: StockInfo | null
 }
 
 const form = ref({
@@ -221,5 +288,20 @@ const handleAnalyze = async () => {
   margin-top: 10px;
   font-size: 14px;
   color: #606266;
+}
+
+.stock-info-card {
+  margin-top: 16px;
+  border: 1px solid #e4e7ed;
+}
+
+.stock-info-card .price {
+  font-size: 18px;
+  font-weight: 700;
+  color: #cf1322;
+}
+
+.stock-info-card .el-descriptions__cell {
+  padding: 8px 12px;
 }
 </style>

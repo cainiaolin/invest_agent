@@ -1,6 +1,7 @@
 """Philip Fisher成长投资Agent"""
 from app.agents.base import BaseAgent
 from app.core.state import AnalysisState
+import pandas as pd
 
 
 class FisherAgent(BaseAgent):
@@ -23,6 +24,15 @@ class FisherAgent(BaseAgent):
     7. 良好的员工关系
     8. 严格的内部控制
     """
+
+    def __init__(self, tushare_service):
+        """
+        初始化Fisher Agent
+
+        Args:
+            tushare_service: Tushare数据服务实例
+        """
+        super().__init__(tushare_service)
 
     @property
     def name(self) -> str:
@@ -72,38 +82,122 @@ class FisherAgent(BaseAgent):
         return result
 
     async def _get_stock_data(self, stock_code: str) -> dict:
-        """获取股票数据"""
-        import random
-        random.seed(hash(stock_code) % 10000)
+        """
+        从tushare获取股票数据
 
-        return {
-            "symbol": stock_code,
-            "name": f"股票{stock_code}",
-            "metrics": {
-                "pe_ratio": round(random.uniform(8, 40), 2),
-                "pb_ratio": round(random.uniform(1, 8), 2),
-                "roe": round(random.uniform(5, 30), 2),
-                "debt_ratio": round(random.uniform(20, 70), 2),
-                "revenue_growth": round(random.uniform(-5, 35), 2),
-                "profit_growth": round(random.uniform(-10, 40), 2),
-                "operating_margin": round(random.uniform(3, 35), 2),
-                "net_margin": round(random.uniform(2, 25), 2),
-            },
-            "growth_indicators": {
-                "rd_ratio": round(random.uniform(0.5, 12), 2),
-                "rd_growth": round(random.uniform(-5, 25), 2),
-                "market_share_growth": round(random.uniform(-3, 8), 2),
-                "customer_satisfaction": random.randint(3, 10),
-                "sales_force_quality": random.randint(3, 10),
-            },
-            "management_quality": {
-                "management_tenure": round(random.uniform(1, 15), 2),
-                "management_experience": random.randint(2, 10),
-                "employee_turnover": round(random.uniform(3, 30), 2),
-                "employee_satisfaction": random.randint(3, 10),
-                "internal_control_quality": random.randint(3, 10),
-            },
-        }
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            包含股票数据的字典
+        """
+        try:
+            # 获取完整基本面数据
+            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+
+            if not fundamentals:
+                # 如果无法获取真实数据，返回空数据
+                return {
+                    "symbol": stock_code,
+                    "name": f"股票{stock_code}",
+                    "metrics": {},
+                    "growth_indicators": {},
+                    "management_quality": {},
+                }
+
+            # 解析daily_basic数据
+            daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
+            if not daily_basic.empty:
+                latest = daily_basic.iloc[0]
+                pe_ratio = latest.get("pe", 0)
+                pb_ratio = latest.get("pb", 0)
+            else:
+                pe_ratio = 0
+                pb_ratio = 0
+
+            # 解析利润表数据
+            income = fundamentals.get("income", pd.DataFrame())
+            if not income.empty:
+                latest_income = income.iloc[0]
+                total_revenue = latest_income.get("total_revenue", 0)
+                operating_profit = latest_income.get("oper_profit", 0)
+                oper_cost = latest_income.get("oper_cost", 0)
+            else:
+                total_revenue = 0
+                operating_profit = 0
+                oper_cost = 0
+
+            # 解析资产负债表数据
+            balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
+            if not balancesheet.empty:
+                latest_bs = balancesheet.iloc[0]
+                total_assets = latest_bs.get("total_assets", 0)
+                equity = latest_bs.get("equities_parent_comp", 0)
+                total_liab = latest_bs.get("total_liab", 0)
+            else:
+                total_assets = 0
+                equity = 0
+                total_liab = 0
+
+            # 解析现金流量表数据
+            cashflow = fundamentals.get("cashflow", pd.DataFrame())
+            if not cashflow.empty:
+                latest_cf = cashflow.iloc[0]
+                net_profit = latest_cf.get("net_profit", 0)
+            else:
+                net_profit = 0
+
+            # 计算衍生指标
+            roe = (net_profit / equity * 100) if equity > 0 else 0
+            debt_ratio = (total_liab / total_assets * 100) if total_assets > 0 else 0
+            operating_margin = (operating_profit / total_revenue * 100) if total_revenue > 0 else 0
+            net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
+
+            # 增长率（简化，需要历史数据计算同比）
+            revenue_growth = 0
+            profit_growth = 0
+
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "metrics": {
+                    "pe_ratio": float(pe_ratio) if pe_ratio else 0,
+                    "pb_ratio": float(pb_ratio) if pb_ratio else 0,
+                    "roe": float(roe),
+                    "debt_ratio": float(debt_ratio),
+                    "revenue_growth": float(revenue_growth),
+                    "profit_growth": float(profit_growth),
+                    "operating_margin": float(operating_margin),
+                    "net_margin": float(net_margin),
+                },
+                "growth_indicators": {
+                    # 这些指标需要额外的数据源或分析模型
+                    "rd_ratio": 0,  # 研发费用率需要利润表详细数据
+                    "rd_growth": 0,  # 需要历史数据
+                    "market_share_growth": 0,  # 需要行业数据
+                    "customer_satisfaction": 5,  # 默认中等
+                    "sales_force_quality": 5,  # 默认中等
+                },
+                "management_quality": {
+                    # 这些指标需要额外的数据源
+                    "management_tenure": 0,  # 需要公司治理数据
+                    "management_experience": 5,  # 默认中等
+                    "employee_turnover": 0,  # 需要人力资源数据
+                    "employee_satisfaction": 5,  # 默认中等
+                    "internal_control_quality": 5,  # 默认中等
+                },
+            }
+
+        except Exception as e:
+            print(f"获取股票 {stock_code} 数据失败: {e}")
+            # 返回空数据
+            return {
+                "symbol": stock_code,
+                "name": f"股票{stock_code}",
+                "metrics": {},
+                "growth_indicators": {},
+                "management_quality": {},
+            }
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""

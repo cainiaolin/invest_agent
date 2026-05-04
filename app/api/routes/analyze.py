@@ -80,6 +80,19 @@ class FinalDecisionModel(BaseModel):
     summary: str
 
 
+class StockInfo(BaseModel):
+    """股票实时数据（来自 Tushare）"""
+    stock_name: str = ""
+    trade_date: str = ""
+    close: float = 0.0
+    pe_ttm: float = 0.0
+    pb: float = 0.0
+    total_mv: float = 0.0
+    circ_mv: float = 0.0
+    turnover_rate: float = 0.0
+    volume_ratio: float = 0.0
+
+
 class AnalyzeResponse(BaseModel):
     """分析响应模型"""
     stock_code: str
@@ -88,6 +101,7 @@ class AnalyzeResponse(BaseModel):
     final_decision: Optional[FinalDecisionModel]
     formatted_output: Optional[str]
     error: Optional[str] = None
+    stock_info: Optional[StockInfo] = None
 
 
 def _parse_agents(agents_str: Optional[str]) -> List[str]:
@@ -158,6 +172,27 @@ async def analyze_stock(request: AnalyzeRequest):
 
         # 3. 创建Agent实例
         tushare_service = TushareService(settings.tushare_token)
+
+        # 3a. 获取 Tushare 实时股票数据
+        stock_info = None
+        try:
+            daily_data = await tushare_service.get_daily_basic(request.stock_code)
+            daily_df = daily_data.get("daily_basic")
+            if daily_df is not None and not daily_df.empty:
+                latest = daily_df.iloc[0]
+                stock_info = StockInfo(
+                    stock_name=f"{request.stock_code}",
+                    trade_date=str(latest.get("trade_date", "")),
+                    close=float(latest.get("close", 0)),
+                    pe_ttm=float(latest.get("pe_ttm", 0) or 0),
+                    pb=float(latest.get("pb", 0) or 0),
+                    total_mv=float(latest.get("total_mv", 0) or 0),
+                    circ_mv=float(latest.get("circ_mv", 0) or 0),
+                    turnover_rate=float(latest.get("turnover_rate", 0) or 0),
+                    volume_ratio=float(latest.get("volume_ratio", 0) or 0),
+                )
+        except Exception as e:
+            logger.warning(f"获取Tushare实时数据失败", exc_info=True)
         agents = []
         for name in agent_names:
             agent_class = AGENT_MAP.get(name)
@@ -291,7 +326,8 @@ async def analyze_stock(request: AnalyzeRequest):
             agent_analyses=result["agent_analyses"],
             final_decision=result["final_decision"],
             formatted_output=result.get("formatted_output"),
-            error=None
+            error=None,
+            stock_info=stock_info
         )
 
     except HTTPException:
