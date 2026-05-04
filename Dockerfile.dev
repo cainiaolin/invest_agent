@@ -1,0 +1,41 @@
+# Development Dockerfile with hot-reload support
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    POETRY_VERSION=1.8.0 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_NO_INTERACTION=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Poetry
+RUN curl -sSL https://install.python-poetry.org | python3 -
+ENV PATH="$POETRY_HOME/bin:$PATH"
+
+# Set work directory
+WORKDIR /app
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock* ./
+
+# Install dependencies (including dev dependencies)
+RUN poetry install
+
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs
+
+# Copy application code
+COPY . .
+
+# Expose ports
+EXPOSE 8000 8501
+
+# Default command (can be overridden in docker-compose)
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

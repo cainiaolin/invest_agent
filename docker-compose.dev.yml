@@ -1,0 +1,33 @@
+version: '3.8'
+
+# Development docker-compose with hot-reload
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: invest-agent-dev
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/invest.db
+      - TUSHARE_TOKEN=${TUSHARE_TOKEN}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_API_BASE=${LLM_API_BASE:-https://api.openai.com/v1}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - ./data:/app/data
+      - ./logs:/app/logs
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    stdin_open: true
+    tty: true
+    networks:
+      - invest-network
+
+networks:
+  invest-network:
+    driver: bridge

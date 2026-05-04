@@ -1,0 +1,58 @@
+[tool.poetry]
+name = "invest-agent-by-graph"
+version = "0.1.0"
+description = "基于LangGraph+Tushare的多Agent投资智能体系"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+click = "^8.1.7"
+rich = "^13.7.0"
+pydantic = "^2.6.0"
+pydantic-settings = "^2.1.0"
+tushare = "^1.2.90"
+python-dotenv = "^1.0.0"
+langgraph = "^0.2.0"
+langchain = "^0.3.0"
+langchain-core = "^0.3.0"
+# Web framework dependencies
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+websockets = "^12.0"
+python-multipart = "^0.0.9"
+# Database dependencies
+sqlalchemy = "^2.0.25"
+aiosqlite = "^0.19.0"
+alembic = "^1.13.0"
+# Data processing dependencies
+pandas = "^2.2.0"
+numpy = "^1.26.0"
+
+[tool.poetry.scripts]
+invest-agent = "app.cli.main:cli"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.1"
+pytest-mock = "^3.12.0"
+black = "^24.1.0"
+ruff = "^0.1.0"
+mypy = "^1.8.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
