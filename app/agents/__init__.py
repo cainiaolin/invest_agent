@@ -27,9 +27,19 @@ def get_ai_agents():
     global _AI_AGENTS
     if _AI_AGENTS is None:
         from app.agents.value.llm_graham_agent import LLMGrahamAgent
+        from app.agents.value.llm_buffet_agent import LLMBuffetAgent
+        from app.agents.growth.llm_fisher_agent import LLMFisherAgent
+        from app.agents.growth.llm_lynch_agent import LLMLynchAgent
+        from app.agents.macro.llm_soros_agent import LLMSorosAgent
+        from app.agents.macro.llm_dalio_agent import LLMDalioAgent
 
         _AI_AGENTS = {
             "graham": LLMGrahamAgent,
+            "buffet": LLMBuffetAgent,
+            "fisher": LLMFisherAgent,
+            "lynch": LLMLynchAgent,
+            "soros": LLMSorosAgent,
+            "dalio": LLMDalioAgent,
         }
     return _AI_AGENTS
 
