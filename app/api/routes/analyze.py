@@ -221,10 +221,23 @@ async def analyze_stock(request: AnalyzeRequest):
             # 构建LLM配置
             llm_config_dict = None
             if request.llm_config:
+                # 获取provider特定的默认密钥
+                provider = request.llm_config.provider
+                default_api_key = None
+                if provider == "openai":
+                    default_api_key = settings.openai_api_key
+                elif provider == "anthropic":
+                    default_api_key = settings.anthropic_api_key
+                elif provider == "deepseek":
+                    default_api_key = settings.deepseek_api_key
+                elif provider == "glm":
+                    default_api_key = settings.glm_api_key
+
                 llm_config_dict = {
-                    "provider": request.llm_config.provider,
+                    "provider": provider,
                     "model": request.llm_config.model,
-                    "api_key": request.llm_config.api_key or settings.openai_api_key,
+                    "api_key": request.llm_config.api_key or default_api_key,
+                    "base_url": request.llm_config.base_url,
                     "temperature": request.llm_config.temperature,
                     "max_tokens": request.llm_config.max_tokens
                 }
