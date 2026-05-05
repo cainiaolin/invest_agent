@@ -50,6 +50,50 @@ Invest Agent By Graph 是一个智能投资分析系统，通过多个AI Agent�
 - **乔治·索罗斯**: 反身性理论、繁荣-崩溃周期、趋势拐点
 - **雷·达利欧**: 经济周期分析、全天候策略、债务周期模型
 
+## 🤖 AI增强模式
+
+### 支持的LLM模型
+
+- **OpenAI**: GPT-4, GPT-4o, GPT-4o-mini
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus
+- **本地模型**: 通过OpenAI兼容接口（如Ollama）
+
+### AI模式特点
+
+- **思维链推理**: 逐步分析，提供完整的思考过程
+- **知识驱动**: 基于投资大师的知识图谱进行决策
+- **自动降级**: LLM失败时自动切换到规则引擎
+- **多模型支持**: 灵活配置不同的LLM提供商
+
+### 配置示例
+
+```bash
+# 设置OpenAI API密钥
+export OPENAI_API_KEY="sk-..."
+
+# 或在.env文件中配置
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4o
+```
+
+### API使用示例
+
+```bash
+# 使用AI模式分析
+curl -X POST "http://localhost:8000/api/v1/analyze/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stock_code": "600519",
+    "mode": "parallel",
+    "agents": "graham,buffet",
+    "agent_mode": "ai",
+    "llm_config": {
+      "provider": "openai",
+      "model": "gpt-4o"
+    }
+  }'
+```
+
 ### 核心功能
 
 **个股分析:**

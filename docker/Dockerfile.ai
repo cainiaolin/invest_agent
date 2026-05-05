@@ -1,0 +1,22 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 安装依赖
+COPY pyproject.toml ./
+RUN apt-get update && apt-get install -y gcc && \
+    pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-dev --no-root
+
+# 复制代码
+COPY ./app ./app
+COPY ./knowledge ./knowledge
+
+# 环境变量
+ENV PYTHONPATH=/app
+ENV KNOWLEDGE_BASE_PATH=/app/knowledge
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
