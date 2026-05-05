@@ -60,10 +60,16 @@ class LLMAgent(BaseAgent):
             分析结果字典
         """
         try:
+            logger.info(f"尝试使用LLM分析: {self.name}")
             return await self._analyze_with_llm(state)
         except Exception as e:
             logger.warning(f"LLM分析失败: {e}，降级到规则引擎")
-            return await self._fallback_to_rule_engine(state)
+            result = await self._fallback_to_rule_engine(state)
+            # 确保降级结果也包含必要字段
+            result.setdefault("analysis_mode", "rule_fallback")
+            result.setdefault("llm_model", None)
+            result.setdefault("thought_process", None)
+            return result
 
     async def _analyze_with_llm(self, state: AnalysisState) -> Dict[str, Any]:
         """
@@ -159,8 +165,11 @@ class LLMAgent(BaseAgent):
         rule_agent = rule_agent_class(self.tushare)
         result = await rule_agent.analyze(state)
 
-        result["agent_name"] = f"{self.name} (规则引擎降级)"
-        result["analysis_mode"] = "rule_fallback"
-        result["fallback_reason"] = "LLM服务不可用"
+        # 确保返回结果包含AI模式的标识字段
+        result.setdefault("agent_name", f"{self.name} (规则引擎降级)")
+        result.setdefault("analysis_mode", "rule_fallback")
+        result.setdefault("fallback_reason", "LLM服务不可用")
+        result.setdefault("llm_model", None)
+        result.setdefault("thought_process", None)
 
         return result
