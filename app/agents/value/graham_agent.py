@@ -156,11 +156,11 @@ class GrahamAgent(BaseAgent):
             balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
             if not balancesheet.empty:
                 latest_bs = balancesheet.iloc[0]
-                total_assets = latest_bs.get("total_assets", 0)
-                equity = latest_bs.get("equities_parent_comp", 0)
-                total_liab = latest_bs.get("total_liab", 0)
-                current_assets = latest_bs.get("current_assets", 0)
-                current_liab = latest_bs.get("current_liab", 0)
+                total_assets = latest_bs.get("total_assets", 0) or 0
+                equity = latest_bs.get("total_hldr_eqy_exc_min_int", 0) or 0
+                total_liab = latest_bs.get("total_liab", 0) or 0
+                current_assets = latest_bs.get("total_cur_assets", 0) or 0
+                current_liab = latest_bs.get("total_cur_liab", 0) or 0
             else:
                 total_assets = 0
                 equity = 0
@@ -170,16 +170,38 @@ class GrahamAgent(BaseAgent):
 
             # 解析现金流量表数据
             cashflow = fundamentals.get("cashflow", pd.DataFrame())
+            net_profit_cf = 0
+            operating_cash_flow = 0
             if not cashflow.empty:
                 latest_cf = cashflow.iloc[0]
-                net_profit = latest_cf.get("net_profit", 0)
-            else:
-                net_profit = 0
+                net_profit_cf = latest_cf.get("net_profit", 0) or 0
+                operating_cash_flow = latest_cf.get("n_cashflow_act", 0) or 0
 
-            # 计算衍生指标
-            roe = (net_profit / equity * 100) if equity > 0 else 0
-            debt_ratio = (total_liab / total_assets * 100) if total_assets > 0 else 0
-            current_ratio = (current_assets / current_liab) if current_liab > 0 else 0
+            # 解析财务指标（fina_indicator提供预计算的ROE、利润率等）
+            fina = fundamentals.get("fina_indicator", pd.DataFrame())
+            roe = 0
+            gross_margin = 0
+            net_margin = 0
+            fina_current_ratio = 0
+            debt_to_assets = 0
+            revenue_growth = 0
+            profit_growth = 0
+            if not fina.empty:
+                latest_fina = fina.iloc[0]
+                roe = float(latest_fina.get("roe", 0) or 0)
+                gross_margin = float(latest_fina.get("grossprofit_margin", 0) or 0)
+                net_margin = float(latest_fina.get("netprofit_margin", 0) or 0)
+                fina_current_ratio = float(latest_fina.get("current_ratio", 0) or 0)
+                debt_to_assets = float(latest_fina.get("debt_to_assets", 0) or 0)
+                revenue_growth = float(latest_fina.get("rev_yoy", 0) or 0)
+                profit_growth = float(latest_fina.get("netprofit_yoy", 0) or 0)
+
+            # 衍生指标：优先用fina_indicator，回退到手动计算
+            if roe == 0 and equity > 0 and net_profit_cf > 0:
+                roe = net_profit_cf / equity * 100
+
+            debt_ratio = debt_to_assets if debt_to_assets > 0 else (total_liab / total_assets * 100 if total_assets > 0 else 0)
+            current_ratio = fina_current_ratio if fina_current_ratio > 0 else (current_assets / current_liab if current_liab > 0 else 0)
 
             # 计算BVPS (每股净资产)
             # BVPS = 股东权益 / 总股本，这里简化处理
@@ -201,9 +223,14 @@ class GrahamAgent(BaseAgent):
                     "roe": float(roe),
                     "debt_ratio": float(debt_ratio),
                     "current_ratio": float(current_ratio),
-                    "dividend_yield": 0,  # 需要额外的股息数据接口
-                    "revenue_growth": 0,  # 需要历史数据计算同比
-                    "profit_growth": 0,  # 需要历史数据计算同比
+                    "gross_margin": float(gross_margin),
+                    "net_margin": float(net_margin),
+                    "revenue_growth": float(revenue_growth),
+                    "profit_growth": float(profit_growth),
+                    "dividend_yield": float(dv_ratio) if (dv_ratio := latest.get("dv_ratio", 0)) else 0,
+                    "operating_cash_flow": float(operating_cash_flow),
+                    "total_revenue": float(total_revenue),
+                    "net_profit": float(total_revenue - (latest_income.get("oper_cost", 0) or 0)) if (not net_profit_cf or net_profit_cf != net_profit_cf) else float(net_profit_cf),
                 },
                 "net_net_working_capital": float(net_net_working_capital),
                 "aaa_bond_yield": self.DEFAULT_AAA_BOND_YIELD,

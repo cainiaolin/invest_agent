@@ -165,7 +165,7 @@ class TushareService:
             df = await loop.run_in_executor(
                 None,
                 lambda: self.api.income(
-                    ts_code=formatted_code, period=period, fields="ts_code,ann_date,f_ann_date,end_date,report_type,basic_eps,diluted_eps,total_revenue,revenue,oper_cost,oper_profit,total_cogs,sell_exp,admin_exp,fin_exp,int_exp,assets_impair_loss,total_liab,total_hldr_eqy_exc_min_int,equities_parent_comp"
+                    ts_code=formatted_code, period=period, fields="ts_code,ann_date,end_date,report_type,basic_eps,total_revenue,revenue,oper_cost,total_profit,total_cogs,sell_exp,admin_exp,fin_exp"
                 ),
             )
 
@@ -202,7 +202,7 @@ class TushareService:
                 lambda: self.api.balancesheet(
                     ts_code=formatted_code,
                     period=period,
-                    fields="ts_code,ann_date,f_ann_date,end_date,report_type,total_assets,total_hldr_eqy_exc_min_int,equities_parent_comp,total_liab,current_assets,current_liab,cash_equivalents",
+                    fields="ts_code,ann_date,f_ann_date,end_date,report_type,total_assets,total_hldr_eqy_exc_min_int,total_liab,total_cur_assets,total_cur_liab",
                 ),
             )
 
@@ -253,6 +253,45 @@ class TushareService:
             logger.error(f"获取现金流量表数据失败: {e}")
             return {}
 
+    async def get_fina_indicator(
+        self, stock_code: str, period: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        获取财务指标数据（ROE、利润率、流动比率等）
+
+        Args:
+            stock_code: 股票代码
+            period: 报告期（可选）
+
+        Returns:
+            包含fina_indicator数据的字典
+        """
+        try:
+            formatted_code = self._format_stock_code(stock_code)
+            logger.info(f"获取 {formatted_code} 的财务指标数据")
+
+            loop = asyncio.get_event_loop()
+            df = await loop.run_in_executor(
+                None,
+                lambda: self.api.fina_indicator(
+                    ts_code=formatted_code,
+                    period=period,
+                    fields="ts_code,ann_date,end_date,roe,roe_waa,grossprofit_margin,"
+                    "netprofit_margin,current_ratio,quick_ratio,debt_to_assets,"
+                    "op_yoy,netprofit_yoy,rev_yoy",
+                ),
+            )
+
+            if df.empty:
+                logger.warning(f"股票 {formatted_code} 的财务指标数据为空")
+                return {}
+
+            return {"fina_indicator": df}
+
+        except Exception as e:
+            logger.error(f"获取财务指标数据失败: {e}")
+            return {}
+
     async def get_stock_fundamentals(
         self, stock_code: str, period: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -274,6 +313,7 @@ class TushareService:
             self.get_income_statement(stock_code, period),
             self.get_balancesheet(stock_code, period),
             self.get_cashflow(stock_code, period),
+            self.get_fina_indicator(stock_code, period),
             return_exceptions=True,
         )
 
