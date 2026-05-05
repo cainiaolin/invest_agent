@@ -231,7 +231,7 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": self.config.get("model", "glm-5"),
+                    "model": self.config.get("model", "glm-4-flash"),
                     "messages": messages,
                     "temperature": self.config.get("temperature", 0.7),
                     "max_tokens": self.config.get("max_tokens", 4000)
@@ -239,7 +239,14 @@ class LLMService:
             )
             response.raise_for_status()
             result = response.json()
-            return result["choices"][0]["message"]["content"]
+            msg = result["choices"][0]["message"]
+            # glm-5等推理模型：content可能为空，实际内容在reasoning_content中
+            content = msg.get("content", "")
+            if not content:
+                reasoning = msg.get("reasoning_content", "")
+                if reasoning:
+                    content = reasoning
+            return content
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:

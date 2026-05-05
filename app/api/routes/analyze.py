@@ -264,11 +264,38 @@ async def analyze_stock(request: AnalyzeRequest):
                 logger.info(f"LLM配置: provider={provider}, model={request.llm_config.model}, base_url={llm_config_dict['base_url']}")
             else:
                 # 使用.env中的默认配置
+                provider = settings.llm_provider
+                default_api_key = None
+                default_base_url = None
+                default_model = settings.llm_model
+                if provider == "openai":
+                    default_api_key = settings.openai_api_key
+                elif provider == "anthropic":
+                    default_api_key = settings.anthropic_api_key
+                elif provider == "deepseek":
+                    default_api_key = settings.deepseek_api_key
+                    default_base_url = settings.deepseek_base_url
+                elif provider == "glm":
+                    default_api_key = settings.glm_api_key
+                    default_base_url = settings.glm_base_url
+                    if settings.glm_model:
+                        default_model = settings.glm_model
+
+                if not default_api_key or str(default_api_key).startswith("your-"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"LLM API密钥未配置，请在.env中设置有效的{provider.upper()}_API_KEY"
+                    )
+
                 llm_config_dict = {
-                    "provider": settings.llm_provider,
-                    "model": settings.llm_model,
-                    "api_key": None  # LLMService会从settings获取
+                    "provider": provider,
+                    "model": default_model,
+                    "api_key": default_api_key,
+                    "base_url": default_base_url,
+                    "temperature": 0.7,
+                    "max_tokens": 4000
                 }
+                logger.info(f"使用.env默认LLM配置: provider={provider}, model={default_model}, base_url={default_base_url}")
 
             llm_service = LLMService(llm_config_dict)
             knowledge_service = KnowledgeService(settings.knowledge_base_path)
