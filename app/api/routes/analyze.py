@@ -221,7 +221,7 @@ async def analyze_stock(request: AnalyzeRequest):
             # 构建LLM配置
             llm_config_dict = None
             if request.llm_config:
-                # 获取provider特定的默认密钥
+                # 使用前端提供的配置
                 provider = request.llm_config.provider
                 default_api_key = None
                 if provider == "openai":
@@ -240,6 +240,13 @@ async def analyze_stock(request: AnalyzeRequest):
                     "base_url": request.llm_config.base_url,
                     "temperature": request.llm_config.temperature,
                     "max_tokens": request.llm_config.max_tokens
+                }
+            else:
+                # 使用.env中的默认配置
+                llm_config_dict = {
+                    "provider": settings.llm_provider,
+                    "model": settings.llm_model,
+                    "api_key": None  # LLMService会从settings获取
                 }
 
             llm_service = LLMService(llm_config_dict)

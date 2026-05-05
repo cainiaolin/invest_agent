@@ -46,8 +46,27 @@ class LLMService:
         Args:
             config: LLM配置字典
         """
-        self.config = config or self._get_default_config()
+        if config:
+            # 如果提供了config，但api_key为None，则自动获取
+            if not config.get("api_key"):
+                provider = config.get("provider", settings.llm_provider)
+                config["api_key"] = self._get_api_key_for_provider(provider)
+            self.config = config
+        else:
+            self.config = self._get_default_config()
         self._client_cache: Optional[httpx.AsyncClient] = None
+
+    def _get_api_key_for_provider(self, provider: str) -> Optional[str]:
+        """根据provider获取API密钥"""
+        if provider == "openai":
+            return settings.openai_api_key
+        elif provider == "anthropic":
+            return settings.anthropic_api_key
+        elif provider == "deepseek":
+            return settings.deepseek_api_key
+        elif provider == "glm":
+            return settings.glm_api_key
+        return None
 
     def _get_default_config(self) -> Dict[str, Any]:
         """获取默认配置"""
@@ -61,16 +80,7 @@ class LLMService:
 
     def _get_api_key(self) -> Optional[str]:
         """根据provider获取API密钥"""
-        provider = settings.llm_provider
-        if provider == "openai":
-            return settings.openai_api_key
-        elif provider == "anthropic":
-            return settings.anthropic_api_key
-        elif provider == "deepseek":
-            return settings.deepseek_api_key
-        elif provider == "glm":
-            return settings.glm_api_key
-        return None
+        return self._get_api_key_for_provider(settings.llm_provider)
 
     @property
     def _client(self) -> httpx.AsyncClient:
