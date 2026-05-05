@@ -257,16 +257,20 @@ async def analyze_stock(request: AnalyzeRequest):
 
         agents = []
         for name in agent_names:
-            if request.agent_mode == "ai":
-                logger.info(f"创建AI Agent: {name}, mode={request.agent_mode}")
-                agent = get_agent(
-                    name,
-                    mode="ai",
-                    tushare_service=tushare_service,
-                    llm_service=llm_service,
-                    knowledge_service=knowledge_service
-                )
-                logger.info(f"AI Agent创建成功: {agent.__class__.__name__}")
+            try:
+                if request.agent_mode == "ai":
+                    logger.info(f"创建AI Agent: {name}, mode={request.agent_mode}")
+                    logger.info(f"LLM服务状态: {'已初始化' if llm_service else 'None'}")
+                    logger.info(f"Knowledge服务状态: {'已初始化' if knowledge_service else 'None'}")
+
+                    agent = get_agent(
+                        name,
+                        mode="ai",
+                        tushare_service=tushare_service,
+                        llm_service=llm_service,
+                        knowledge_service=knowledge_service
+                    )
+                    logger.info(f"AI Agent创建成功: {agent.__class__.__name__}")
             else:
                 agent = get_agent(
                     name,
