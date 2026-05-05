@@ -34,6 +34,8 @@ class LLMService:
     支持的模型：
     - OpenAI: GPT-4, GPT-4o, GPT-4o-mini
     - Anthropic: Claude 3.5 Sonnet, Claude 3 Opus
+    - DeepSeek: deepseek-v4-flash, deepseek-v4-pro
+    - 智谱AI: glm-4-flash, glm-4-plus, glm-4-air
     - 本地模型: 通过OpenAI兼容接口
     """
 
@@ -64,6 +66,10 @@ class LLMService:
             return settings.openai_api_key
         elif provider == "anthropic":
             return settings.anthropic_api_key
+        elif provider == "deepseek":
+            return settings.deepseek_api_key
+        elif provider == "glm":
+            return settings.glm_api_key
         return None
 
     @property
@@ -162,6 +168,79 @@ class LLMService:
         except httpx.RequestError as e:
             raise LLMServiceError(f"网络错误: {str(e)}")
 
+    async def _call_deepseek(self, messages: List[Dict[str, str]]) -> str:
+        """调用DeepSeek API（OpenAI兼容）"""
+        api_key = self.config.get("api_key")
+        if not api_key:
+            raise LLMServiceError("未配置DeepSeek API密钥")
+
+        base_url = self.config.get("base_url", "https://api.deepseek.com")
+
+        try:
+            response = await self._client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.config.get("model", "deepseek-v4-flash"),
+                    "messages": messages,
+                    "temperature": self.config.get("temperature", 0.7),
+                    "max_tokens": self.config.get("max_tokens", 4000),
+                    "response_format": {"type": "json_object"}
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise LLMRateLimitError("DeepSeek API速率限制")
+            elif e.response.status_code == 400:
+                raise LLMTokenLimitError("Token超限")
+            else:
+                raise LLMServiceError(f"DeepSeek API错误: {e.response.status_code}")
+        except httpx.RequestError as e:
+            raise LLMServiceError(f"网络错误: {str(e)}")
+
+    async def _call_glm(self, messages: List[Dict[str, str]]) -> str:
+        """调用智谱AI GLM API（OpenAI兼容）"""
+        api_key = self.config.get("api_key")
+        if not api_key:
+            raise LLMServiceError("未配置智谱AI API密钥")
+
+        base_url = self.config.get("base_url", "https://open.bigmodel.cn/api/paas/v4")
+
+        try:
+            response = await self._client.post(
+                f"{base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.config.get("model", "glm-4-flash"),
+                    "messages": messages,
+                    "temperature": self.config.get("temperature", 0.7),
+                    "max_tokens": self.config.get("max_tokens", 4000)
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise LLMRateLimitError("智谱AI API速率限制")
+            elif e.response.status_code == 400:
+                raise LLMTokenLimitError("Token超限")
+            else:
+                raise LLMServiceError(f"智谱AI API错误: {e.response.status_code}")
+        except httpx.RequestError as e:
+            raise LLMServiceError(f"网络错误: {str(e)}")
+
     async def _call_openai_compatible(self, messages: List[Dict[str, str]]) -> str:
         """调用OpenAI兼容接口（本地模型）"""
         base_url = self.config.get("base_url", "http://localhost:11434/v1")
@@ -191,6 +270,10 @@ class LLMService:
             return await self._call_openai(messages)
         elif provider == "anthropic":
             return await self._call_anthropic(messages)
+        elif provider == "deepseek":
+            return await self._call_deepseek(messages)
+        elif provider == "glm":
+            return await self._call_glm(messages)
         else:
             return await self._call_openai_compatible(messages)
 
