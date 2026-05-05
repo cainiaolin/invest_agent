@@ -11,6 +11,12 @@ from app.agents import (
     SorosAgent, DalioAgent
 )
 from app.services.tushare_service import TushareService
+from app.services.exceptions import (
+    TushareAPIError,
+    TusharePermissionError,
+    TushareDataNotFoundError,
+    MissingCriticalDataError
+)
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -200,8 +206,7 @@ async def analyze_stock(request: AnalyzeRequest):
             logger.warning("获取股票名称失败", exc_info=True)
 
         try:
-            daily_data = await tushare_service.get_daily_basic(request.stock_code)
-            daily_df = daily_data.get("daily_basic")
+            daily_df = await tushare_service.get_daily_basic(request.stock_code)
             if daily_df is not None and not daily_df.empty:
                 latest = daily_df.iloc[0]
                 stock_info = StockInfo(
@@ -216,6 +221,8 @@ async def analyze_stock(request: AnalyzeRequest):
                     volume_ratio=float(latest.get("volume_ratio", 0) or 0),
                 )
                 logger.info(f"获取Tushare数据成功: close={stock_info.close}, PE={stock_info.pe_ttm}, PB={stock_info.pb}")
+        except (TusharePermissionError, MissingCriticalDataError) as e:
+            logger.warning(f"获取Tushare实时数据失败: {e}")
         except Exception:
             logger.warning("获取Tushare实时数据失败", exc_info=True)
 
@@ -407,14 +414,18 @@ async def analyze_stock(request: AnalyzeRequest):
                 import traceback
                 traceback.print_exc()
                 # 添加一个失败的分析记录
+                error_type = analysis_result.get("error_type", "unknown_error") if 'analysis_result' in locals() else "unknown_error"
                 agent_analyses_models.append(AgentAnalysisModel(
                     agent_name=agent.name,
                     agent_type=_get_agent_type(agent.name),
                     action="hold",
                     confidence=0.0,
-                    reasoning=f"分析失败: {str(e)}",
-                    key_metrics={},
-                    price_target=None
+                    reasoning=analysis_result.get("reasoning", f"分析失败: {str(e)}") if 'analysis_result' in locals() else f"分析失败: {str(e)}",
+                    key_metrics=analysis_result.get("key_metrics", {}) if 'analysis_result' in locals() else {},
+                    price_target=None,
+                    analysis_mode=analysis_result.get("analysis_mode") if 'analysis_result' in locals() else None,
+                    llm_model=analysis_result.get("llm_model") if 'analysis_result' in locals() else None,
+                    validation_warning=analysis_result.get("validation_warning") if 'analysis_result' in locals() else None
                 ))
                 continue
 

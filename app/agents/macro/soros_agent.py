@@ -1,7 +1,17 @@
 """索罗斯风格宏观对冲Agent"""
+import logging
+import pandas as pd
 from app.agents.base import BaseAgent
 from app.core.state import AnalysisState
-import pandas as pd
+from app.services.exceptions import (
+    TushareAPIError,
+    TushareDataNotFoundError,
+    MissingCriticalDataError,
+    TusharePermissionError
+)
+from app.services.data_validator import DataValidator
+
+logger = logging.getLogger(__name__)
 
 
 class SorosAgent(BaseAgent):
@@ -52,124 +62,171 @@ class SorosAgent(BaseAgent):
         """
         stock_code = state.get("stock_code", "")
 
-        # 获取股票数据（模拟数据，实际应从tushare获取）
-        stock_data = await self._get_stock_data(stock_code)
+        try:
+            # 获取并验证股票数据
+            stock_data = await self._get_validated_stock_data(stock_code)
 
-        # 调用原有的分析逻辑
-        result = self._analyze_stock_data(stock_data)
+            # 执行分析
+            result = self._analyze_stock_data(stock_data)
+            result["agent_name"] = self.name
 
-        # 添加agent_name并统一返回格式
-        result["agent_name"] = self.name
-        if "decision" in result and "action" not in result:
-            result["action"] = result.pop("decision")
-        if "key_factors" in result and "key_metrics" not in result:
-            result["key_metrics"] = {"key_factors": result.pop("key_factors")}
+            if "decision" in result and "action" not in result:
+                result["action"] = result.pop("decision")
+            if "key_factors" in result and "key_metrics" not in result:
+                result["key_metrics"] = {"key_factors": result.pop("key_factors")}
 
-        return result
+            return result
 
-    async def _get_stock_data(self, stock_code: str) -> dict:
+        except TusharePermissionError as e:
+            logger.error(f"Tushare权限不足: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据权限不足，无法进行分析。请检查Tushare积分是否达到{e.required_points}积分要求。",
+                "error_type": "permission_error",
+                "agent_name": self.name
+            }
+
+        except TushareDataNotFoundError as e:
+            logger.warning(f"股票数据不存在: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"无法找到股票数据：{e.message}",
+                "error_type": "data_not_found",
+                "agent_name": self.name
+            }
+
+        except MissingCriticalDataError as e:
+            logger.warning(f"关键数据缺失: {e}")
+            missing = ", ".join(e.missing_fields)
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"缺少关键数据({missing})，无法进行索罗斯风格分析。索罗斯关注反身性和市场趋势。",
+                "error_type": "missing_critical_data",
+                "missing_fields": e.missing_fields,
+                "agent_name": self.name
+            }
+
+        except TushareAPIError as e:
+            logger.error(f"API调用失败: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据获取失败：{e.message}",
+                "error_type": "api_error",
+                "agent_name": self.name
+            }
+
+        except Exception as e:
+            logger.error(f"分析失败: {e}", exc_info=True)
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"分析过程中发生错误：{str(e)}",
+                "error_type": "unknown_error",
+                "agent_name": self.name
+            }
+
+    async def _get_validated_stock_data(self, stock_code: str) -> dict:
         """
-        从tushare获取股票数据
+        获取并验证股票数据
 
         Args:
             stock_code: 股票代码
 
         Returns:
-            包含股票数据的字典
+            验证通过的股票数据
+
+        Raises:
+            TushareAPIError: API调用失败
+            TushareDataNotFoundError: 数据不存在
+            MissingCriticalDataError: 关键数据缺失
         """
-        try:
-            # 获取完整基本面数据
-            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+        # 获取完整基本面数据
+        fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
 
-            # 获取日线数据（用于计算价格动量和波动率）
-            import asyncio
-            loop = asyncio.get_event_loop()
+        # 获取日线数据（用于计算价格动量和波动率）
+        import asyncio
+        loop = asyncio.get_event_loop()
 
-            # 格式化股票代码
-            if "." not in stock_code:
-                if stock_code.startswith("6") or stock_code.startswith("5"):
-                    formatted_code = f"{stock_code}.SH"
-                else:
-                    formatted_code = f"{stock_code}.SZ"
-            else:
-                formatted_code = stock_code
+        formatted_code = self.tushare._format_stock_code(stock_code)
 
-            # 获取历史日线数据（用于计算动量）
-            daily_df = await loop.run_in_executor(
-                None,
-                lambda: self.tushare.api.daily(
-                    ts_code=formatted_code,
-                    start_date="20230101",
-                    end_date=""
-                )
+        daily_df = await loop.run_in_executor(
+            None,
+            lambda: self.tushare.api.daily(
+                ts_code=formatted_code,
+                start_date="20230101",
+                end_date=""
             )
+        )
 
-            if not daily_df.empty and len(daily_df) > 20:
-                # 计算价格动量（20日涨跌幅）
-                latest_price = daily_df.iloc[0]["close"]
-                price_20_days_ago = daily_df.iloc[19]["close"] if len(daily_df) > 19 else latest_price
-                price_momentum = ((latest_price - price_20_days_ago) / price_20_days_ago) * 100
+        # 计算价格动量（20日涨跌幅）
+        if not daily_df.empty and len(daily_df) > 20:
+            latest_price = daily_df.iloc[0]["close"]
+            price_20_days_ago = daily_df.iloc[19]["close"] if len(daily_df) > 19 else latest_price
+            price_momentum = ((latest_price - price_20_days_ago) / price_20_days_ago) * 100
 
-                # 计算波动率（20日标准差）
-                returns = daily_df.head(20)["pct_chg"]
-                volatility = returns.std()
-            else:
-                price_momentum = 0
-                volatility = 0
+            # 计算波动率（20日标准差）
+            returns = daily_df.head(20)["pct_chg"]
+            volatility = returns.std()
+        else:
+            price_momentum = 0
+            volatility = 0
 
-            if not fundamentals:
-                # 如果无法获取真实数据，返回空数据
-                return {
-                    "symbol": stock_code,
-                    "name": f"股票{stock_code}",
-                    "metrics": {},
-                    "macro_indicators": {},
-                    "market_sentiment": {},
-                }
+        # 解析daily_basic数据（可选）
+        daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
+        if not daily_basic.empty:
+            latest = daily_basic.iloc[0]
+            pe_ratio = float(latest.get("pe", 0) or 0)
+            pb_ratio = float(latest.get("pb", 0) or 0)
+        else:
+            pe_ratio = 0.0
+            pb_ratio = 0.0
 
-            # 解析daily_basic数据
-            daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
-            if not daily_basic.empty:
-                latest = daily_basic.iloc[0]
-                pe_ratio = latest.get("pe", 0)
-                pb_ratio = latest.get("pb", 0)
-            else:
-                pe_ratio = 0
-                pb_ratio = 0
+        # 解析财务指标（fina_indicator提供预计算的指标）
+        fina = fundamentals["fina_indicator"]
+        latest_fina = fina.iloc[0]
+        revenue_growth = float(latest_fina.get("rev_yoy", 0) or 0)
+        profit_growth = float(latest_fina.get("netprofit_yoy", 0) or 0)
 
-            return {
-                "symbol": stock_code,
-                "name": f"股票{stock_code}",
-                "metrics": {
-                    "pe_ratio": float(pe_ratio) if pe_ratio else 0,
-                    "pb_ratio": float(pb_ratio) if pb_ratio else 0,
-                    "price_momentum": float(price_momentum),
-                    "volatility": float(volatility),
-                },
-                "macro_indicators": {
-                    # 这些指标需要额外的宏观数据接口
-                    "liquidity_cycle": "neutral",  # 需要宏观经济数据
-                    "credit_spread": 0,  # 需要信用利差数据
-                    "yield_curve": "normal",  # 需要国债收益率数据
-                },
-                "market_sentiment": {
-                    # 这些指标需要市场情绪数据接口
-                    "score": 50,  # 需要市场情绪指标
-                    "put_call_ratio": 1.0,  # 需要期权数据
-                    "margin_debt_growth": 0,  # 需要融资数据
-                },
-            }
+        # 构建metrics字典
+        metrics = {
+            "pe_ratio": pe_ratio,
+            "pb_ratio": pb_ratio,
+            "revenue_growth": revenue_growth,
+            "profit_growth": profit_growth,
+            "price_momentum": float(price_momentum),
+            "volatility": float(volatility),
+        }
 
-        except Exception as e:
-            print(f"获取股票 {stock_code} 数据失败: {e}")
-            # 返回空数据
-            return {
-                "symbol": stock_code,
-                "name": f"股票{stock_code}",
-                "metrics": {},
-                "macro_indicators": {},
-                "market_sentiment": {},
-            }
+        # 数据质量验证
+        stock_data_temp = {
+            "symbol": stock_code,
+            "name": f"股票{stock_code}",
+            "metrics": metrics
+        }
+
+        validation_result = DataValidator.validate_stock_data(
+            stock_data_temp,
+            agent_name=self.name,
+            strict_mode=True
+        )
+
+        stock_data_temp["data_quality"] = validation_result
+        stock_data_temp["macro_indicators"] = {
+            "liquidity_cycle": "neutral",
+            "credit_spread": 0,
+            "yield_curve": "normal",
+        }
+        stock_data_temp["market_sentiment"] = {
+            "score": 50,
+            "put_call_ratio": 1.0,
+            "margin_debt_growth": 0,
+        }
+
+        return stock_data_temp
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""
@@ -177,9 +234,13 @@ class SorosAgent(BaseAgent):
         macro_indicators = stock_data.get("macro_indicators", {})
         market_sentiment = stock_data.get("market_sentiment", {})
 
-        # 提取关键指标
+        # 提取关键指标（已验证，不使用默认值）
         pe_ratio = metrics.get("pe_ratio", 0)
         pb_ratio = metrics.get("pb_ratio", 0)
+        revenue_growth = metrics["revenue_growth"]
+        profit_growth = metrics["profit_growth"]
+        price_momentum = metrics["price_momentum"]
+        volatility = metrics["volatility"]
         price_momentum = metrics.get("price_momentum", 0)  # 价格动量
         volatility = metrics.get("volatility", 0)  # 波动率
 

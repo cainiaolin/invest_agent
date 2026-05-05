@@ -59,9 +59,10 @@ class LLMBuffetAgent(LLMAgent):
         except Exception as e:
             logger.warning(f"LLM调用失败: {e}，使用规则引擎")
             return await self._fallback_to_rule_engine(state)
-
+        logger.info("buffet LM Result: %s", llm_result)   
         # 解析和验证结果
         result = self._parse_llm_response(llm_result, stock_data)
+     
         result.update({
             "agent_name": self.name,
             "analysis_mode": "ai_llm",

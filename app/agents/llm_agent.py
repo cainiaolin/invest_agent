@@ -7,6 +7,13 @@ from app.agents.base import BaseAgent
 from app.services.llm_service import LLMService
 from app.services.knowledge_service import KnowledgeService
 from app.core.state import AnalysisState
+from app.services.exceptions import (
+    TushareAPIError,
+    TushareDataNotFoundError,
+    MissingCriticalDataError,
+    TusharePermissionError
+)
+from app.services.data_validator import DataValidator
 
 
 logger = logging.getLogger(__name__)
@@ -59,9 +66,33 @@ class LLMAgent(BaseAgent):
         Returns:
             分析结果字典
         """
+        stock_code = state.get("stock_code", "")
+
         try:
             logger.info(f"尝试使用LLM分析: {self.name}, LLM配置: provider={self.llm.config.get('provider')}, model={self.llm.config.get('model')}")
             return await self._analyze_with_llm(state)
+        except (TusharePermissionError, TushareDataNotFoundError, MissingCriticalDataError) as e:
+            logger.warning(f"数据获取失败: {type(e).__name__}: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据获取失败：{str(e)}",
+                "error_type": type(e).__name__,
+                "agent_name": self.name,
+                "analysis_mode": "data_error",
+                "llm_model": None
+            }
+        except TushareAPIError as e:
+            logger.error(f"Tushare API错误: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据获取失败：{e.message}",
+                "error_type": "api_error",
+                "agent_name": self.name,
+                "analysis_mode": "data_error",
+                "llm_model": None
+            }
         except Exception as e:
             logger.warning(f"LLM分析失败: {type(e).__name__}: {e}，降级到规则引擎", exc_info=True)
             result = await self._fallback_to_rule_engine(state)
@@ -80,6 +111,11 @@ class LLMAgent(BaseAgent):
 
         Returns:
             分析结果
+
+        Raises:
+            TushareAPIError: API调用失败
+            TushareDataNotFoundError: 数据不存在
+            MissingCriticalDataError: 关键数据缺失
         """
         stock_code = state.get("stock_code", "")
         stock_data = await self._get_enriched_stock_data(stock_code)
@@ -140,11 +176,16 @@ class LLMAgent(BaseAgent):
 
         Returns:
             包含股票数据的字典
+
+        Raises:
+            TushareAPIError: API调用失败
+            TushareDataNotFoundError: 数据不存在
+            MissingCriticalDataError: 关键数据缺失
         """
-        # 复用现有Agent的数据获取方法
+        # 复用现有Agent的数据获取方法（使用新的验证版本）
         from app.agents.value.graham_agent import GrahamAgent
         temp_agent = GrahamAgent(self.tushare)
-        return await temp_agent._get_stock_data(stock_code)
+        return await temp_agent._get_validated_stock_data(stock_code)
 
     async def _fallback_to_rule_engine(self, state: AnalysisState) -> Dict[str, Any]:
         """

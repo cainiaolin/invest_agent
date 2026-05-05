@@ -1,9 +1,19 @@
 """Ray Dalio风格宏观经济分析Agent"""
-from app.agents.base import BaseAgent
-from app.core.state import AnalysisState
+import logging
+import pandas as pd
 from typing import Dict, List, Optional
 from enum import Enum
-import pandas as pd
+from app.agents.base import BaseAgent
+from app.core.state import AnalysisState
+from app.services.exceptions import (
+    TushareAPIError,
+    TushareDataNotFoundError,
+    MissingCriticalDataError,
+    TusharePermissionError
+)
+from app.services.data_validator import DataValidator
+
+logger = logging.getLogger(__name__)
 
 
 class EconomicCycleStage(Enum):
@@ -87,123 +97,168 @@ class DalioAgent(BaseAgent):
         """
         stock_code = state.get("stock_code", "")
 
-        # 获取股票数据（模拟数据，实际应从tushare获取）
-        stock_data = await self._get_stock_data(stock_code)
+        try:
+            # 获取并验证股票数据
+            stock_data = await self._get_validated_stock_data(stock_code)
 
-        # 调用原有的分析逻辑
-        result = self._analyze_stock_data(stock_data)
+            # 执行分析
+            result = self._analyze_stock_data(stock_data)
+            result["agent_name"] = self.name
 
-        # 添加agent_name并统一返回格式
-        result["agent_name"] = self.name
-        if "decision" in result and "action" not in result:
-            result["action"] = result.pop("decision")
-        if "key_factors" in result and "key_metrics" not in result:
-            result["key_metrics"] = {"key_factors": result.pop("key_factors")}
+            if "decision" in result and "action" not in result:
+                result["action"] = result.pop("decision")
+            if "key_factors" in result and "key_metrics" not in result:
+                result["key_metrics"] = {"key_factors": result.pop("key_factors")}
 
-        return result
+            return result
 
-    async def _get_stock_data(self, stock_code: str) -> dict:
+        except TusharePermissionError as e:
+            logger.error(f"Tushare权限不足: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据权限不足，无法进行分析。请检查Tushare积分是否达到{e.required_points}积分要求。",
+                "error_type": "permission_error",
+                "agent_name": self.name
+            }
+
+        except TushareDataNotFoundError as e:
+            logger.warning(f"股票数据不存在: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"无法找到股票数据：{e.message}",
+                "error_type": "data_not_found",
+                "agent_name": self.name
+            }
+
+        except MissingCriticalDataError as e:
+            logger.warning(f"关键数据缺失: {e}")
+            missing = ", ".join(e.missing_fields)
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"缺少关键数据({missing})，无法进行达利欧风格分析。达利欧关注经济周期和债务周期。",
+                "error_type": "missing_critical_data",
+                "missing_fields": e.missing_fields,
+                "agent_name": self.name
+            }
+
+        except TushareAPIError as e:
+            logger.error(f"API调用失败: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据获取失败：{e.message}",
+                "error_type": "api_error",
+                "agent_name": self.name
+            }
+
+        except Exception as e:
+            logger.error(f"分析失败: {e}", exc_info=True)
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"分析过程中发生错误：{str(e)}",
+                "error_type": "unknown_error",
+                "agent_name": self.name
+            }
+
+    async def _get_validated_stock_data(self, stock_code: str) -> dict:
         """
-        从tushare获取股票数据
+        获取并验证股票数据
 
         Args:
             stock_code: 股票代码
 
         Returns:
-            包含股票数据的字典
+            验证通过的股票数据
+
+        Raises:
+            TushareAPIError: API调用失败
+            TushareDataNotFoundError: 数据不存在
+            MissingCriticalDataError: 关键数据缺失
         """
-        try:
-            # 获取完整基本面数据
-            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+        # 获取完整基本面数据
+        fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
 
-            # 获取日线数据（用于计算beta）
-            import asyncio
-            loop = asyncio.get_event_loop()
+        # 获取日线数据（用于计算beta）
+        import asyncio
+        loop = asyncio.get_event_loop()
 
-            # 格式化股票代码
-            if "." not in stock_code:
-                if stock_code.startswith("6") or stock_code.startswith("5"):
-                    formatted_code = f"{stock_code}.SH"
-                else:
-                    formatted_code = f"{stock_code}.SZ"
-            else:
-                formatted_code = stock_code
+        formatted_code = self.tushare._format_stock_code(stock_code)
 
-            # 获取历史日线数据
-            daily_df = await loop.run_in_executor(
-                None,
-                lambda: self.tushare.api.daily(
-                    ts_code=formatted_code,
-                    start_date="20230101",
-                    end_date=""
-                )
+        daily_df = await loop.run_in_executor(
+            None,
+            lambda: self.tushare.api.daily(
+                ts_code=formatted_code,
+                start_date="20230101",
+                end_date=""
             )
+        )
 
-            if not fundamentals:
-                # 如果无法获取真实数据，返回空数据
-                return {
-                    "symbol": stock_code,
-                    "name": f"股票{stock_code}",
-                    "macro_indicators": {},
-                    "company_data": {},
-                }
+        # 解析资产负债表数据
+        balancesheet = fundamentals["balancesheet"]
+        latest_bs = balancesheet.iloc[0]
+        total_assets = float(latest_bs.get("total_assets", 0) or 0)
+        equity = float(latest_bs.get("total_hldr_eqy_exc_min_int", 0) or 0)
+        total_liab = float(latest_bs.get("total_liab", 0) or 0)
 
-            # 解析资产负债表数据
-            balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
-            if not balancesheet.empty:
-                latest_bs = balancesheet.iloc[0]
-                total_assets = latest_bs.get("total_assets", 0)
-                equity = latest_bs.get("equities_parent_comp", 0)
-                total_liab = latest_bs.get("total_liab", 0)
-            else:
-                total_assets = 0
-                equity = 0
-                total_liab = 0
+        # 解析财务指标（fina_indicator提供预计算的指标）
+        fina = fundamentals["fina_indicator"]
+        latest_fina = fina.iloc[0]
+        debt_to_assets = float(latest_fina.get("debt_to_assets", 0) or 0)
 
-            # 计算债务比率（简化）
-            debt_to_equity = (total_liab / equity) if equity > 0 else 0
+        # 计算债务比率
+        debt_to_equity = (total_liab / equity) if equity > 0 else 0
 
-            # 计算波动率（用于周期敏感性估算）
-            if not daily_df.empty and len(daily_df) > 20:
-                returns = daily_df.head(20)["pct_chg"]
-                volatility = returns.std()
-                # 简化的周期敏感性估算（高波动率通常意味着高周期性）
-                cyclical_sensitivity = min(volatility / 2, 2.0)
-            else:
-                cyclical_sensitivity = 1.0
+        # 计算波动率（用于周期敏感性估算）
+        if not daily_df.empty and len(daily_df) > 20:
+            returns = daily_df.head(20)["pct_chg"]
+            volatility = returns.std()
+            cyclical_sensitivity = min(volatility / 2, 2.0)
+        else:
+            cyclical_sensitivity = 1.0
 
-            return {
-                "symbol": stock_code,
-                "name": f"股票{stock_code}",
-                "macro_indicators": {
-                    # 这些指标需要额外的宏观数据接口
-                    "gdp_growth": 0,  # 需要宏观经济数据
-                    "inflation_rate": 0,  # 需要CPI数据
-                    "interest_rate": 0,  # 需要利率数据
-                    "unemployment_rate": 0,  # 需要就业数据
-                    "credit_growth": 0,  # 需要信贷数据
-                    "debt_to_gdp": 0,  # 需要宏观债务数据
-                },
-                "company_data": {
-                    "beta": 1.0,  # 默认值，实际需要和市场指数对比计算
-                    "cyclical_sensitivity": float(cyclical_sensitivity),
-                    "industry": "未知",  # 需要行业分类数据
-                },
-            }
+        # 构建metrics字典
+        metrics = {
+            "debt_to_assets": debt_to_assets,
+            "debt_to_equity": debt_to_equity,
+        }
 
-        except Exception as e:
-            print(f"获取股票 {stock_code} 数据失败: {e}")
-            # 返回空数据
-            return {
-                "symbol": stock_code,
-                "name": f"股票{stock_code}",
-                "macro_indicators": {},
-                "company_data": {},
-            }
+        # 数据质量验证
+        stock_data_temp = {
+            "symbol": stock_code,
+            "name": f"股票{stock_code}",
+            "metrics": metrics
+        }
+
+        validation_result = DataValidator.validate_stock_data(
+            stock_data_temp,
+            agent_name=self.name,
+            strict_mode=True
+        )
+
+        stock_data_temp["data_quality"] = validation_result
+        stock_data_temp["macro_indicators"] = {
+            "gdp_growth": 0,
+            "inflation_rate": 0,
+            "interest_rate": 0,
+            "unemployment_rate": 0,
+            "credit_growth": 0,
+            "debt_to_gdp": 0,
+        }
+        stock_data_temp["company_data"] = {
+            "beta": 1.0,
+            "cyclical_sensitivity": float(cyclical_sensitivity),
+            "industry": "未知",
+        }
+
+        return stock_data_temp
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""
-        # 提取宏观数据
+        # 提取数据
         macro_data = stock_data.get("macro_indicators", {})
         company_data = stock_data.get("company_data", {})
 

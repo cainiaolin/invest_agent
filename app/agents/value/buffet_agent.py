@@ -1,7 +1,17 @@
 """巴菲特风格价值投资Agent"""
+import logging
+import pandas as pd
 from app.agents.base import BaseAgent
 from app.core.state import AnalysisState
-import pandas as pd
+from app.services.exceptions import (
+    TushareAPIError,
+    TushareDataNotFoundError,
+    MissingCriticalDataError,
+    TusharePermissionError
+)
+from app.services.data_validator import DataValidator
+
+logger = logging.getLogger(__name__)
 
 
 class BuffetAgent(BaseAgent):
@@ -52,165 +62,186 @@ class BuffetAgent(BaseAgent):
         """
         stock_code = state.get("stock_code", "")
 
-        # 获取股票数据（模拟数据，实际应从tushare获取）
-        stock_data = await self._get_stock_data(stock_code)
+        try:
+            # 获取并验证股票数据
+            stock_data = await self._get_validated_stock_data(stock_code)
 
-        # 调用原有的分析逻辑
-        result = self._analyze_stock_data(stock_data)
+            # 执行分析
+            result = self._analyze_stock_data(stock_data)
+            result["agent_name"] = self.name
+            return result
 
-        # 添加agent_name
-        result["agent_name"] = self.name
+        except TusharePermissionError as e:
+            logger.error(f"Tushare权限不足: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据权限不足，无法进行分析。请检查Tushare积分是否达到{e.required_points}积分要求。",
+                "error_type": "permission_error",
+                "agent_name": self.name
+            }
 
-        return result
+        except TushareDataNotFoundError as e:
+            logger.warning(f"股票数据不存在: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"无法找到股票数据：{e.message}",
+                "error_type": "data_not_found",
+                "agent_name": self.name
+            }
 
-    async def _get_stock_data(self, stock_code: str) -> dict:
+        except MissingCriticalDataError as e:
+            logger.warning(f"关键数据缺失: {e}")
+            missing = ", ".join(e.missing_fields)
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"缺少关键数据({missing})，无法进行巴菲特风格分析。巴菲特投资需要评估企业的护城河、ROE、利润率等指标。",
+                "error_type": "missing_critical_data",
+                "missing_fields": e.missing_fields,
+                "agent_name": self.name
+            }
+
+        except TushareAPIError as e:
+            logger.error(f"API调用失败: {e}")
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"数据获取失败：{e.message}",
+                "error_type": "api_error",
+                "agent_name": self.name
+            }
+
+        except Exception as e:
+            logger.error(f"分析失败: {e}", exc_info=True)
+            return {
+                "action": "hold",
+                "confidence": 0.0,
+                "reasoning": f"分析过程中发生错误：{str(e)}",
+                "error_type": "unknown_error",
+                "agent_name": self.name
+            }
+
+    async def _get_validated_stock_data(self, stock_code: str) -> dict:
         """
-        从tushare获取股票数据
+        获取并验证股票数据
 
         Args:
             stock_code: 股票代码
 
         Returns:
-            包含股票数据的字典
+            验证通过的股票数据
+
+        Raises:
+            TushareAPIError: API调用失败
+            TushareDataNotFoundError: 数据不存在
+            MissingCriticalDataError: 关键数据缺失
         """
-        try:
-            # 获取完整基本面数据
-            fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
+        # 获取完整基本面数据
+        fundamentals = await self.tushare.get_stock_fundamentals(stock_code)
 
-            if not fundamentals:
-                # 如果无法获取真实数据，返回空数据
-                return {
-                    "symbol": stock_code,
-                    "name": f"股票{stock_code}",
-                    "metrics": {},
-                    "moat_indicators": {}
-                }
-
-            # 解析daily_basic数据
-            daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
-            if not daily_basic.empty:
-                latest = daily_basic.iloc[0]
-                pe_ratio = latest.get("pe", 0)
-                pb_ratio = latest.get("pb", 0)
-                total_mv = latest.get("total_mv", 0)  # 总市值(万元)
-            else:
-                pe_ratio = 0
-                pb_ratio = 0
-                total_mv = 0
-
-            # 解析利润表数据
-            income = fundamentals.get("income", pd.DataFrame())
-            if not income.empty:
-                latest_income = income.iloc[0]
-                basic_eps = latest_income.get("basic_eps", 0) or 0
-                revenue = latest_income.get("total_revenue", 0) or 0
-                total_profit = latest_income.get("total_profit", 0) or 0
-            else:
-                basic_eps = 0
-                revenue = 0
-                total_profit = 0
-
-            # 解析资产负债表数据
-            balancesheet = fundamentals.get("balancesheet", pd.DataFrame())
-            if not balancesheet.empty:
-                latest_bs = balancesheet.iloc[0]
-                total_assets = latest_bs.get("total_assets", 0) or 0
-                equity = latest_bs.get("total_hldr_eqy_exc_min_int", 0) or 0
-                total_liab = latest_bs.get("total_liab", 0) or 0
-                current_assets = latest_bs.get("total_cur_assets", 0) or 0
-                current_liab = latest_bs.get("total_cur_liab", 0) or 0
-            else:
-                total_assets = 0
-                equity = 0
-                total_liab = 0
-                current_assets = 0
-                current_liab = 0
-
-            # 解析现金流量表数据
-            cashflow = fundamentals.get("cashflow", pd.DataFrame())
-            net_profit = 0
-            operating_cash_flow = 0
-            if not cashflow.empty:
-                latest_cf = cashflow.iloc[0]
-                net_profit = latest_cf.get("net_profit", 0) or 0
-                operating_cash_flow = latest_cf.get("n_cashflow_act", 0) or 0
-
-            # 解析财务指标（fina_indicator提供预计算的指标）
-            fina = fundamentals.get("fina_indicator", pd.DataFrame())
-            roe = 0
-            gross_margin = 0
-            net_margin = 0
-            fina_current_ratio = 0
-            debt_to_assets = 0
-            revenue_growth = 0
-            profit_growth = 0
-            if not fina.empty:
-                latest_fina = fina.iloc[0]
-                roe = float(latest_fina.get("roe", 0) or 0)
-                gross_margin = float(latest_fina.get("grossprofit_margin", 0) or 0)
-                net_margin = float(latest_fina.get("netprofit_margin", 0) or 0)
-                fina_current_ratio = float(latest_fina.get("current_ratio", 0) or 0)
-                debt_to_assets = float(latest_fina.get("debt_to_assets", 0) or 0)
-                revenue_growth = float(latest_fina.get("rev_yoy", 0) or 0)
-                profit_growth = float(latest_fina.get("netprofit_yoy", 0) or 0)
-
-            # 衍生指标：优先用fina_indicator
-            debt_ratio = debt_to_assets if debt_to_assets > 0 else (total_liab / total_assets * 100 if total_assets > 0 else 0)
-            current_ratio = fina_current_ratio if fina_current_ratio > 0 else (current_assets / current_liab if current_liab > 0 else 0)
+        # 解析daily_basic数据（可选）
+        daily_basic = fundamentals.get("daily_basic", pd.DataFrame())
+        if not daily_basic.empty:
+            latest = daily_basic.iloc[0]
+            pe_ratio = float(latest.get("pe", 0) or 0)
+            pb_ratio = float(latest.get("pb", 0) or 0)
+            total_mv = float(latest.get("total_mv", 0) or 0)
             dividend_yield = float(latest.get("dv_ratio", 0) or 0)
+        else:
+            pe_ratio = 0.0
+            pb_ratio = 0.0
+            total_mv = 0.0
+            dividend_yield = 0.0
 
-            return {
-                "symbol": stock_code,
-                "name": f"股票{stock_code}",
-                "metrics": {
-                    "pe_ratio": float(pe_ratio) if pe_ratio else 0,
-                    "pb_ratio": float(pb_ratio) if pb_ratio else 0,
-                    "roe": float(roe),
-                    "debt_ratio": float(debt_ratio),
-                    "current_ratio": float(current_ratio),
-                    "gross_margin": float(gross_margin),
-                    "net_margin": float(net_margin),
-                    "dividend_yield": float(dividend_yield),
-                    "revenue_growth": float(revenue_growth),
-                    "profit_growth": float(profit_growth),
-                    "total_mv": float(total_mv) if total_mv else 0,
-                    "eps": float(basic_eps),
-                    "total_revenue": float(revenue),
-                    "total_profit": float(total_profit),
-                    "net_profit": float(total_profit) if (not net_profit or net_profit != net_profit) else float(net_profit),
-                    "operating_cash_flow": float(operating_cash_flow),
-                },
-                "moat_indicators": {
-                    "brand_strength": 5,
-                    "market_share": 0,
-                    "competitive_advantage": None,
-                }
-            }
+        # 解析利润表数据
+        income = fundamentals["income"]
+        latest_income = income.iloc[0]
+        basic_eps = float(latest_income.get("basic_eps", 0) or 0)
+        revenue = float(latest_income.get("total_revenue", 0) or 0)
+        total_profit = float(latest_income.get("total_profit", 0) or 0)
 
-        except Exception as e:
-            print(f"获取股票 {stock_code} 数据失败: {e}")
-            # 返回空数据
-            return {
-                "symbol": stock_code,
-                "name": f"股票{stock_code}",
-                "metrics": {},
-                "moat_indicators": {}
-            }
+        # 解析资产负债表数据
+        balancesheet = fundamentals["balancesheet"]
+        latest_bs = balancesheet.iloc[0]
+        total_assets = float(latest_bs.get("total_assets", 0) or 0)
+        equity = float(latest_bs.get("total_hldr_eqy_exc_min_int", 0) or 0)
+        total_liab = float(latest_bs.get("total_liab", 0) or 0)
+        current_assets = float(latest_bs.get("total_cur_assets", 0) or 0)
+        current_liab = float(latest_bs.get("total_cur_liab", 0) or 0)
+
+        # 解析现金流量表数据
+        cashflow = fundamentals["cashflow"]
+        latest_cf = cashflow.iloc[0]
+        net_profit = float(latest_cf.get("net_profit", 0) or 0)
+        operating_cash_flow = float(latest_cf.get("n_cashflow_act", 0) or 0)
+
+        # 解析财务指标（fina_indicator提供预计算的指标）
+        fina = fundamentals["fina_indicator"]
+        latest_fina = fina.iloc[0]
+        roe = float(latest_fina.get("roe", 0) or 0)
+        gross_margin = float(latest_fina.get("grossprofit_margin", 0) or 0)
+        net_margin = float(latest_fina.get("netprofit_margin", 0) or 0)
+        fina_current_ratio = float(latest_fina.get("current_ratio", 0) or 0)
+        debt_to_assets = float(latest_fina.get("debt_to_assets", 0) or 0)
+        revenue_growth = float(latest_fina.get("rev_yoy", 0) or 0)
+        profit_growth = float(latest_fina.get("netprofit_yoy", 0) or 0)
+
+        # 衍生指标：优先用fina_indicator
+        debt_ratio = debt_to_assets if debt_to_assets > 0 else (total_liab / total_assets * 100 if total_assets > 0 else 0)
+        current_ratio = fina_current_ratio if fina_current_ratio > 0 else (current_assets / current_liab if current_liab > 0 else 0)
+
+        # 构建metrics字典
+        metrics = {
+            "pe_ratio": pe_ratio,
+            "pb_ratio": pb_ratio,
+            "roe": roe,
+            "debt_ratio": debt_ratio,
+            "current_ratio": current_ratio,
+            "gross_margin": gross_margin,
+            "net_margin": net_margin,
+            "dividend_yield": dividend_yield,
+            "revenue_growth": revenue_growth,
+            "profit_growth": profit_growth,
+        }
+
+        # 数据质量验证
+        stock_data_temp = {
+            "symbol": stock_code,
+            "name": f"股票{stock_code}",
+            "metrics": metrics
+        }
+
+        validation_result = DataValidator.validate_stock_data(
+            stock_data_temp,
+            agent_name=self.name,
+            strict_mode=True
+        )
+
+        stock_data_temp["data_quality"] = validation_result
+        stock_data_temp["moat_indicators"] = {
+            "brand_strength": 5,
+            "market_share": 0,
+            "competitive_advantage": None,
+        }
+
+        return stock_data_temp
 
     def _analyze_stock_data(self, stock_data: dict) -> dict:
         """分析股票数据（内部方法）"""
         metrics = stock_data.get("metrics", {})
         moat_indicators = stock_data.get("moat_indicators", {})
 
-        # 提取关键指标
-        pe_ratio = metrics.get("pe_ratio", 0)
-        pb_ratio = metrics.get("pb_ratio", 0)
-        roe = metrics.get("roe", 0)
-        debt_ratio = metrics.get("debt_ratio", 100)
-        current_ratio = metrics.get("current_ratio", 1.0)
-        dividend_yield = metrics.get("dividend_yield", 0)
-        revenue_growth = metrics.get("revenue_growth", 0)
-        profit_growth = metrics.get("profit_growth", 0)
+        # 提取关键指标（已验证，不使用默认值）
+        pe_ratio = metrics["pe_ratio"]
+        pb_ratio = metrics["pb_ratio"]
+        roe = metrics["roe"]
+        debt_ratio = metrics["debt_ratio"]
+        current_ratio = metrics["current_ratio"]
+        dividend_yield = metrics["dividend_yield"]
+        revenue_growth = metrics["revenue_growth"]
+        profit_growth = metrics["profit_growth"]
 
         # 护城河指标
         brand_strength = moat_indicators.get("brand_strength", 5)
@@ -244,53 +275,7 @@ class BuffetAgent(BaseAgent):
             "reasoning": reasoning,
             "key_metrics": {"scores": scores},
             "total_score": total_score,
-        }
-        metrics = stock_data.get("metrics", {})
-        moat_indicators = stock_data.get("moat_indicators", {})
-
-        # 提取关键指标
-        pe_ratio = metrics.get("pe_ratio", 0)
-        pb_ratio = metrics.get("pb_ratio", 0)
-        roe = metrics.get("roe", 0)
-        debt_ratio = metrics.get("debt_ratio", 100)
-        current_ratio = metrics.get("current_ratio", 1.0)
-        dividend_yield = metrics.get("dividend_yield", 0)
-        revenue_growth = metrics.get("revenue_growth", 0)
-        profit_growth = metrics.get("profit_growth", 0)
-
-        # 护城河指标
-        brand_strength = moat_indicators.get("brand_strength", 5)
-        market_share = moat_indicators.get("market_share", 0)
-        has_advantage = moat_indicators.get("competitive_advantage", False)
-
-        # 评分系统 (0-100)
-        scores = {
-            "moat": self._evaluate_moat(brand_strength, market_share, has_advantage),
-            "financial_health": self._evaluate_financial_health(roe, debt_ratio, current_ratio),
-            "valuation": self._evaluate_valuation(pe_ratio, pb_ratio, revenue_growth, profit_growth),
-            "quality": self._evaluate_quality(dividend_yield, roe, revenue_growth),
-        }
-
-        # 计算总分
-        total_score = sum(scores.values()) / len(scores)
-
-        # 计算置信度
-        confidence = min(total_score / 100, 1.0)
-
-        # 做出决策
-        decision = self._make_decision(total_score, scores)
-
-        # 生成理由和关键因素
-        reasoning = self._generate_reasoning(decision, scores, stock_data)
-        key_factors = self._extract_key_factors(scores, stock_data)
-
-        return {
-            "decision": decision,
-            "confidence": confidence,
-            "reasoning": reasoning,
-            "key_factors": key_factors,
-            "scores": scores,
-            "total_score": total_score,
+            "key_factors": key_factors
         }
 
     def _evaluate_moat(self, brand_strength: int, market_share: float, has_advantage: bool) -> float:
