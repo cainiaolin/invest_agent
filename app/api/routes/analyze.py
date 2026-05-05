@@ -238,11 +238,12 @@ async def analyze_stock(request: AnalyzeRequest):
                         analysis_result["agent_name"] = agent.name
 
                 # 安全提取key_metrics
-                key_metrics_raw = analysis_result.get("key_metrics", analysis_result.get("key_factors", {}))
+                key_metrics_raw = analysis_result.get("key_metrics", {})
                 if isinstance(key_metrics_raw, dict):
                     key_metrics = key_metrics_raw
                 else:
                     # 如果是列表或其他类型，转换为空字典
+                    logger.warning(f"Agent {agent.name} 返回的key_metrics类型错误: {type(key_metrics_raw)}")
                     key_metrics = {}
 
                 agent_analysis = AgentAnalysisModel(
@@ -258,7 +259,6 @@ async def analyze_stock(request: AnalyzeRequest):
 
             except Exception as e:
                 logger.error(f"Agent {agent.name} 构建响应失败: {type(e).__name__}: {e}")
-                logger.error(f"分析结果: {analysis_result}")
                 import traceback
                 traceback.print_exc()
                 # 添加一个失败的分析记录

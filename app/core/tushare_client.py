@@ -41,20 +41,33 @@ class TushareClient:
         try:
             import asyncio
 
-            # 使用同步方式调用异步方法
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # 安全的事件循环处理
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
 
-            # 获取日线数据
-            df = self.service.api.daily(
-                ts_code=ts_code,
-                start_date=start_date,
-                end_date=end_date
-            )
-
-            loop.close()
-
-            return df if df is not None and not df.empty else None
+            if loop is None:
+                # 没有运行中的事件循环，创建新的
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    df = self.service.api.daily(
+                        ts_code=ts_code,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    return df if df is not None and not df.empty else None
+                finally:
+                    loop.close()
+            else:
+                # 有运行中的事件循环，直接同步调用API
+                df = self.service.api.daily(
+                    ts_code=ts_code,
+                    start_date=start_date,
+                    end_date=end_date
+                )
+                return df if df is not None and not df.empty else None
 
         except Exception as e:
             print(f"获取日线数据失败: {e}")
