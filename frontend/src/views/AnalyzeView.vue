@@ -81,6 +81,8 @@
           <el-select v-model="llmConfig.provider">
             <el-option label="OpenAI" value="openai" />
             <el-option label="Anthropic" value="anthropic" />
+            <el-option label="DeepSeek" value="deepseek" />
+            <el-option label="智谱AI" value="glm" />
             <el-option label="本地模型" value="local" />
           </el-select>
         </el-form-item>
