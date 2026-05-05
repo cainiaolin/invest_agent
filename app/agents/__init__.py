@@ -53,6 +53,8 @@ def get_agent(agent_name: str, mode: str = "rule", **kwargs):
         ai_agents = get_ai_agents()
         agent_class = ai_agents.get(agent_name)
         if agent_class:
+            # 添加master_name参数
+            kwargs["master_name"] = agent_name
             return agent_class(**kwargs)
 
     # 默认使用规则引擎
