@@ -31,7 +31,10 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API密钥")
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API密钥")
     deepseek_api_key: Optional[str] = Field(default=None, description="DeepSeek API密钥")
+    deepseek_base_url: Optional[str] = Field(default="https://api.deepseek.com", description="DeepSeek Base URL")
     glm_api_key: Optional[str] = Field(default=None, description="智谱AI API密钥")
+    glm_base_url: Optional[str] = Field(default="https://open.bigmodel.cn/api/paas/v4", description="智谱AI Base URL")
+    glm_model: Optional[str] = Field(default="glm-4-flash", description="智谱AI模型")
 
     # AI模式配置
     ai_mode_enabled: bool = Field(default=True, description="是否启用AI模式")

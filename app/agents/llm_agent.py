@@ -60,10 +60,10 @@ class LLMAgent(BaseAgent):
             分析结果字典
         """
         try:
-            logger.info(f"尝试使用LLM分析: {self.name}")
+            logger.info(f"尝试使用LLM分析: {self.name}, LLM配置: provider={self.llm.config.get('provider')}, model={self.llm.config.get('model')}")
             return await self._analyze_with_llm(state)
         except Exception as e:
-            logger.warning(f"LLM分析失败: {e}，降级到规则引擎")
+            logger.warning(f"LLM分析失败: {type(e).__name__}: {e}，降级到规则引擎", exc_info=True)
             result = await self._fallback_to_rule_engine(state)
             # 确保降级结果也包含必要字段
             result.setdefault("analysis_mode", "rule_fallback")

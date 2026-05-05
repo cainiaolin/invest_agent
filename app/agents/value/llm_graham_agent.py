@@ -62,7 +62,7 @@ class LLMGrahamAgent(LLMAgent):
 
         # 调用LLM推理
         llm_result = await self.llm.reason_with_cot(cot_prompt)
-
+        print("graLLM Result:", llm_result)
         # 解析和验证结果
         result = self._parse_llm_response(llm_result, stock_data)
         result.update({

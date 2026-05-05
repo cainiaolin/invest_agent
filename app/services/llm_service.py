@@ -231,7 +231,7 @@ class LLMService:
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": self.config.get("model", "glm-4-flash"),
+                    "model": self.config.get("model", "glm-5"),
                     "messages": messages,
                     "temperature": self.config.get("temperature", 0.7),
                     "max_tokens": self.config.get("max_tokens", 4000)

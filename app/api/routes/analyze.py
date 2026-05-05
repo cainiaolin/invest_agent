@@ -233,23 +233,35 @@ async def analyze_stock(request: AnalyzeRequest):
                 # 使用前端提供的配置
                 provider = request.llm_config.provider
                 default_api_key = None
+                default_base_url = None
                 if provider == "openai":
                     default_api_key = settings.openai_api_key
                 elif provider == "anthropic":
                     default_api_key = settings.anthropic_api_key
                 elif provider == "deepseek":
                     default_api_key = settings.deepseek_api_key
+                    default_base_url = settings.deepseek_base_url
                 elif provider == "glm":
                     default_api_key = settings.glm_api_key
+                    default_base_url = settings.glm_base_url
+
+                api_key = request.llm_config.api_key or default_api_key
+                if not api_key or api_key.startswith("your-"):
+                    logger.error(f"LLM API密钥未配置或为占位符: provider={provider}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"LLM API密钥未配置，请在.env中设置有效的{provider.upper()}_API_KEY"
+                    )
 
                 llm_config_dict = {
                     "provider": provider,
                     "model": request.llm_config.model,
-                    "api_key": request.llm_config.api_key or default_api_key,
-                    "base_url": request.llm_config.base_url,
+                    "api_key": api_key,
+                    "base_url": request.llm_config.base_url or default_base_url,
                     "temperature": request.llm_config.temperature,
                     "max_tokens": request.llm_config.max_tokens
                 }
+                logger.info(f"LLM配置: provider={provider}, model={request.llm_config.model}, base_url={llm_config_dict['base_url']}")
             else:
                 # 使用.env中的默认配置
                 llm_config_dict = {
