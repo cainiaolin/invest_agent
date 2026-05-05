@@ -89,14 +89,48 @@
 
         <el-form-item label="模型">
           <el-select v-model="llmConfig.model">
-            <el-option label="GPT-4o" value="gpt-4o" />
-            <el-option label="GPT-4 Turbo" value="gpt-4-turbo" />
-            <el-option label="Claude 3.5 Sonnet" value="claude-3-5-sonnet-20241022" />
+            <template v-if="llmConfig.provider === 'openai'">
+              <el-option label="GPT-4o" value="gpt-4o" />
+              <el-option label="GPT-4 Turbo" value="gpt-4-turbo" />
+            </template>
+            <template v-else-if="llmConfig.provider === 'anthropic'">
+              <el-option label="Claude 3.5 Sonnet" value="claude-3-5-sonnet-20241022" />
+            </template>
+            <template v-else-if="llmConfig.provider === 'deepseek'">
+              <el-option label="DeepSeek V4 Flash" value="deepseek-v4-flash" />
+              <el-option label="DeepSeek V4 Pro" value="deepseek-v4-pro" />
+            </template>
+            <template v-else-if="llmConfig.provider === 'glm'">
+              <el-option label="GLM-4 Flash" value="glm-4-flash" />
+              <el-option label="GLM-4 Plus" value="glm-4-plus" />
+              <el-option label="GLM-4 Air" value="glm-4-air" />
+            </template>
+            <template v-else>
+              <el-option label="Llama 2" value="llama2" />
+            </template>
           </el-select>
         </el-form-item>
 
         <el-form-item label="Temperature">
           <el-slider v-model="llmConfig.temperature" :min="0" :max="1" :step="0.1" />
+        </el-form-item>
+
+        <el-form-item label="API Key" v-if="llmConfig.provider === 'deepseek' || llmConfig.provider === 'glm'">
+          <el-input
+            v-model="llmConfig.api_key"
+            type="password"
+            placeholder="请输入API密钥"
+            show-password
+            clearable
+          />
+        </el-form-item>
+
+        <el-form-item label="Base URL" v-if="llmConfig.provider === 'deepseek' || llmConfig.provider === 'glm'">
+          <el-input
+            v-model="llmConfig.base_url"
+            :placeholder="getDefaultBaseUrl()"
+            clearable
+          />
         </el-form-item>
       </el-form>
     </el-card>
@@ -247,7 +281,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Aim, Document, Coin, MagicStick, DataAnalysis } from '@element-plus/icons-vue'
 import { analyzeStock, type LLMConfig, type AnalyzeResult, type AgentAnalysis } from '@/api/analyze'
@@ -316,6 +350,27 @@ const formatAnalysisMode = (mode: string): string => {
   }
   return modes[mode] || mode
 }
+
+const getDefaultBaseUrl = (): string => {
+  const provider = llmConfig.value.provider
+  if (provider === 'deepseek') {
+    return 'https://api.deepseek.com'
+  } else if (provider === 'glm') {
+    return 'https://open.bigmodel.cn/api/paas/v4'
+  }
+  return ''
+}
+
+// 监听provider变化，自动填充base_url和model
+watch(() => llmConfig.value.provider, (newProvider) => {
+  if (newProvider === 'deepseek') {
+    llmConfig.value.base_url = llmConfig.value.base_url || 'https://api.deepseek.com'
+    llmConfig.value.model = llmConfig.value.model || 'deepseek-v4-flash'
+  } else if (newProvider === 'glm') {
+    llmConfig.value.base_url = llmConfig.value.base_url || 'https://open.bigmodel.cn/api/paas/v4'
+    llmConfig.value.model = llmConfig.value.model || 'glm-4-flash'
+  }
+})
 
 const handleAnalyze = async () => {
   if (!form.value.stock_code) {
