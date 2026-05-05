@@ -114,24 +114,6 @@
         <el-form-item label="Temperature">
           <el-slider v-model="llmConfig.temperature" :min="0" :max="1" :step="0.1" />
         </el-form-item>
-
-        <el-form-item label="API Key" v-if="llmConfig.provider === 'deepseek' || llmConfig.provider === 'glm'">
-          <el-input
-            v-model="llmConfig.api_key"
-            type="password"
-            placeholder="请输入API密钥"
-            show-password
-            clearable
-          />
-        </el-form-item>
-
-        <el-form-item label="Base URL" v-if="llmConfig.provider === 'deepseek' || llmConfig.provider === 'glm'">
-          <el-input
-            v-model="llmConfig.base_url"
-            :placeholder="getDefaultBaseUrl()"
-            clearable
-          />
-        </el-form-item>
       </el-form>
     </el-card>
 
@@ -351,24 +333,12 @@ const formatAnalysisMode = (mode: string): string => {
   return modes[mode] || mode
 }
 
-const getDefaultBaseUrl = (): string => {
-  const provider = llmConfig.value.provider
-  if (provider === 'deepseek') {
-    return 'https://api.deepseek.com'
-  } else if (provider === 'glm') {
-    return 'https://open.bigmodel.cn/api/paas/v4'
-  }
-  return ''
-}
-
-// 监听provider变化，自动填充base_url和model
+// 监听provider变化，自动设置默认模型
 watch(() => llmConfig.value.provider, (newProvider) => {
-  if (newProvider === 'deepseek') {
-    llmConfig.value.base_url = llmConfig.value.base_url || 'https://api.deepseek.com'
-    llmConfig.value.model = llmConfig.value.model || 'deepseek-v4-flash'
-  } else if (newProvider === 'glm') {
-    llmConfig.value.base_url = llmConfig.value.base_url || 'https://open.bigmodel.cn/api/paas/v4'
-    llmConfig.value.model = llmConfig.value.model || 'glm-4-flash'
+  if (newProvider === 'deepseek' && !llmConfig.value.model) {
+    llmConfig.value.model = 'deepseek-v4-flash'
+  } else if (newProvider === 'glm' && !llmConfig.value.model) {
+    llmConfig.value.model = 'glm-4-flash'
   }
 })
 
