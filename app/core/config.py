@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="gpt-4o", description="LLM模型")
     openai_api_key: Optional[str] = Field(default=None, description="OpenAI API密钥")
     anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API密钥")
+    deepseek_api_key: Optional[str] = Field(default=None, description="DeepSeek API密钥")
+    glm_api_key: Optional[str] = Field(default=None, description="智谱AI API密钥")
 
     # AI模式配置
     ai_mode_enabled: bool = Field(default=True, description="是否启用AI模式")

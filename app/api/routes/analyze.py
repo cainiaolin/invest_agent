@@ -69,6 +69,7 @@ class LLMConfigModel(BaseModel):
     provider: str = Field(default="openai", description="LLM提供商")
     model: str = Field(default="gpt-4o", description="模型名称")
     api_key: Optional[str] = Field(default=None, description="API密钥")
+    base_url: Optional[str] = Field(default=None, description="API Base URL（用于DeepSeek/GLM等）")
     temperature: float = Field(default=0.7, ge=0, le=1)
     max_tokens: int = Field(default=4000, ge=100, le=8000)
 
