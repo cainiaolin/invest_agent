@@ -78,3 +78,178 @@ class LLMService:
         if self._client_cache:
             await self._client_cache.aclose()
             self._client_cache = None
+
+    async def _call_openai(self, messages: List[Dict[str, str]]) -> str:
+        """调用OpenAI API"""
+        api_key = self.config.get("api_key")
+        if not api_key:
+            raise LLMServiceError("未配置OpenAI API密钥")
+
+        try:
+            response = await self._client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.config.get("model", "gpt-4o"),
+                    "messages": messages,
+                    "temperature": self.config.get("temperature", 0.7),
+                    "max_tokens": self.config.get("max_tokens", 4000),
+                    "response_format": {"type": "json_object"}
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise LLMRateLimitError("OpenAI API速率限制")
+            elif e.response.status_code == 400:
+                raise LLMTokenLimitError("Token超限")
+            else:
+                raise LLMServiceError(f"OpenAI API错误: {e.response.status_code}")
+        except httpx.RequestError as e:
+            raise LLMServiceError(f"网络错误: {str(e)}")
+
+    async def _call_anthropic(self, messages: List[Dict[str, str]]) -> str:
+        """调用Anthropic Claude API"""
+        api_key = self.config.get("api_key")
+        if not api_key:
+            raise LLMServiceError("未配置Anthropic API密钥")
+
+        # Convert message format
+        system_msg = ""
+        user_messages = []
+
+        for msg in messages:
+            if msg["role"] == "system":
+                system_msg = msg["content"]
+            else:
+                user_messages.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+
+        try:
+            response = await self._client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01"
+                },
+                json={
+                    "model": self.config.get("model", "claude-3-5-sonnet-20241022"),
+                    "max_tokens": self.config.get("max_tokens", 4000),
+                    "system": system_msg,
+                    "messages": user_messages
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["content"][0]["text"]
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise LLMRateLimitError("Anthropic API速率限制")
+            elif e.response.status_code == 400:
+                raise LLMTokenLimitError("Token超限")
+            else:
+                raise LLMServiceError(f"Anthropic API错误: {e.response.status_code}")
+        except httpx.RequestError as e:
+            raise LLMServiceError(f"网络错误: {str(e)}")
+
+    async def _call_openai_compatible(self, messages: List[Dict[str, str]]) -> str:
+        """调用OpenAI兼容接口（本地模型）"""
+        base_url = self.config.get("base_url", "http://localhost:11434/v1")
+
+        try:
+            response = await self._client.post(
+                f"{base_url}/chat/completions",
+                headers={"Content-Type": "application/json"},
+                json={
+                    "model": self.config.get("model", "llama2"),
+                    "messages": messages,
+                    "temperature": self.config.get("temperature", 0.7),
+                    "max_tokens": self.config.get("max_tokens", 4000)
+                }
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
+        except Exception as e:
+            raise LLMServiceError(f"本地模型调用失败: {str(e)}")
+
+    async def _call_llm(self, messages: List[Dict[str, str]]) -> str:
+        """统一的LLM调用入口"""
+        provider = self.config.get("provider", "openai")
+
+        if provider == "openai":
+            return await self._call_openai(messages)
+        elif provider == "anthropic":
+            return await self._call_anthropic(messages)
+        else:
+            return await self._call_openai_compatible(messages)
+
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """解析JSON响应"""
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            pass
+
+        # Try to extract JSON code block
+        import re
+        json_match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Try to extract braces content
+        brace_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if brace_match:
+            try:
+                return json.loads(brace_match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+        raise LLMInvalidResponseError(f"无法解析JSON响应: {response[:200]}...")
+
+    def _shorten_prompt(self, prompt: str) -> str:
+        """缩短Prompt"""
+        max_length = 3000
+        if len(prompt) > max_length:
+            return prompt[:max_length] + "\n\n[内容已截断...]"
+        return prompt
+
+    async def reason_with_cot(self, prompt: str, retry: int = 3) -> Dict[str, Any]:
+        """使用思维链进行推理（带重试）"""
+        messages = [
+            {"role": "system", "content": "你是一位专业的投资分析师，擅长深度思考和严谨推理。"},
+            {"role": "user", "content": prompt}
+        ]
+
+        for attempt in range(retry):
+            try:
+                response = await self._call_llm(messages)
+                return self._parse_json_response(response)
+            except LLMRateLimitError:
+                if attempt < retry - 1:
+                    wait_time = 2 ** attempt
+                    await asyncio.sleep(wait_time)
+                else:
+                    raise
+            except LLMTokenLimitError:
+                prompt = self._shorten_prompt(prompt)
+            except LLMInvalidResponseError:
+                if attempt >= retry - 1:
+                    raise
+            except LLMServiceError:
+                raise
+
+        raise LLMServiceError("重试次数耗尽")
