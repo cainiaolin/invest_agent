@@ -60,6 +60,17 @@ class AnalyzeRequest(BaseModel):
     mode: str = Field(default="parallel", description="协作模式: parallel/vote/debate")
     agents: Optional[str] = Field(default=None, description="指定Agent（逗号分隔，如buffet,graham）")
     verbose: bool = Field(default=False, description="详细输出")
+    agent_mode: str = Field(default="rule", description="Agent模式: rule/ai/hybrid")
+    llm_config: Optional["LLMConfigModel"] = Field(default=None, description="LLM配置")
+
+
+class LLMConfigModel(BaseModel):
+    """LLM配置模型"""
+    provider: str = Field(default="openai", description="LLM提供商")
+    model: str = Field(default="gpt-4o", description="模型名称")
+    api_key: Optional[str] = Field(default=None, description="API密钥")
+    temperature: float = Field(default=0.7, ge=0, le=1)
+    max_tokens: int = Field(default=4000, ge=100, le=8000)
 
 
 class AgentAnalysisModel(BaseModel):
@@ -71,6 +82,10 @@ class AgentAnalysisModel(BaseModel):
     reasoning: str
     key_metrics: Dict[str, Any]
     price_target: Optional[float]
+    analysis_mode: Optional[str] = Field(default=None, description="分析模式: rule/ai_llm/rule_fallback")
+    thought_process: Optional[Dict[str, Any]] = Field(default=None, description="思维链过程")
+    llm_model: Optional[str] = Field(default=None, description="使用的LLM模型")
+    validation_warning: Optional[str] = Field(default=None, description="验证警告")
 
 
 class FinalDecisionModel(BaseModel):
@@ -193,11 +208,49 @@ async def analyze_stock(request: AnalyzeRequest):
                 )
         except Exception as e:
             logger.warning(f"获取Tushare实时数据失败", exc_info=True)
+
+        # 3b. 初始化AI模式相关服务
+        llm_service = None
+        knowledge_service = None
+
+        if request.agent_mode in ["ai", "hybrid"]:
+            from app.services.llm_service import LLMService
+            from app.services.knowledge_service import KnowledgeService
+
+            # 构建LLM配置
+            llm_config_dict = None
+            if request.llm_config:
+                llm_config_dict = {
+                    "provider": request.llm_config.provider,
+                    "model": request.llm_config.model,
+                    "api_key": request.llm_config.api_key or settings.openai_api_key,
+                    "temperature": request.llm_config.temperature,
+                    "max_tokens": request.llm_config.max_tokens
+                }
+
+            llm_service = LLMService(llm_config_dict)
+            knowledge_service = KnowledgeService(settings.knowledge_base_path)
+
+        # 3c. 使用get_agent函数创建Agent
+        from app.agents import get_agent
+
         agents = []
         for name in agent_names:
-            agent_class = AGENT_MAP.get(name)
-            if agent_class:
-                agents.append(agent_class(tushare_service))
+            if request.agent_mode == "ai":
+                agent = get_agent(
+                    name,
+                    mode="ai",
+                    tushare_service=tushare_service,
+                    llm_service=llm_service,
+                    knowledge_service=knowledge_service
+                )
+            else:
+                agent = get_agent(
+                    name,
+                    mode="rule",
+                    tushare_service=tushare_service
+                )
+            agents.append(agent)
 
         if not agents:
             raise HTTPException(
