@@ -1,9 +1,10 @@
 import axios from 'axios'
 
 export interface LLMConfig {
-  provider?: 'openai' | 'anthropic' | 'local'
+  provider?: 'openai' | 'anthropic' | 'local' | 'deepseek' | 'glm'
   model?: string
   api_key?: string
+  base_url?: string
   temperature?: number
   max_tokens?: number
 }
