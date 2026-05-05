@@ -50,6 +50,55 @@
       </el-form>
     </el-card>
 
+    <el-card class="mode-selector">
+      <template #header>
+        <span>分析模式</span>
+      </template>
+
+      <el-radio-group v-model="agentMode">
+        <el-radio-button label="rule">
+          <el-icon><Coin /></el-icon>
+          规则引擎
+        </el-radio-button>
+        <el-radio-button label="ai">
+          <el-icon><MagicStick /></el-icon>
+          AI增强
+        </el-radio-button>
+        <el-radio-button label="hybrid">
+          <el-icon><DataAnalysis /></el-icon>
+          混合模式
+        </el-radio-button>
+      </el-radio-group>
+    </el-card>
+
+    <el-card v-if="agentMode === 'ai'" class="ai-config">
+      <template #header>
+        <span>LLM配置</span>
+      </template>
+
+      <el-form :model="llmConfig" label-width="100px">
+        <el-form-item label="提供商">
+          <el-select v-model="llmConfig.provider">
+            <el-option label="OpenAI" value="openai" />
+            <el-option label="Anthropic" value="anthropic" />
+            <el-option label="本地模型" value="local" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="模型">
+          <el-select v-model="llmConfig.model">
+            <el-option label="GPT-4o" value="gpt-4o" />
+            <el-option label="GPT-4 Turbo" value="gpt-4-turbo" />
+            <el-option label="Claude 3.5 Sonnet" value="claude-3-5-sonnet-20241022" />
+          </el-select>
+        </el-form-item>
+
+        <el-form-item label="Temperature">
+          <el-slider v-model="llmConfig.temperature" :min="0" :max="1" :step="0.1" />
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card v-if="result" class="result-card" v-loading="loading">
       <template #header>
         <div class="card-header">
@@ -136,6 +185,48 @@
           <el-table-column prop="reasoning" label="分析理由" min-width="200" show-overflow-tooltip />
         </el-table>
 
+        <!-- Agent 详细分析卡片 -->
+        <div v-for="analysis in result.agent_analyses" :key="analysis.agent_name" class="agent-detail-card">
+          <el-card shadow="hover">
+            <template #header>
+              <div class="agent-detail-header">
+                <span>{{ analysis.agent_name }} - 详细分析</span>
+                <el-tag v-if="analysis.analysis_mode" type="info" size="small">
+                  {{ formatAnalysisMode(analysis.analysis_mode) }}
+                </el-tag>
+              </div>
+            </template>
+
+            <div v-if="analysis.thought_process && analysis.analysis_mode === 'ai_llm'" class="thought-process">
+              <el-collapse>
+                <el-collapse-item title="查看AI分析思维过程" name="thought">
+                  <div class="thought-steps">
+                    <div v-for="(step, key) in analysis.thought_process" :key="key" class="step">
+                      <h5>{{ formatStepName(key) }}</h5>
+                      <p v-if="Array.isArray(step)">{{ step.join(', ') }}</p>
+                      <p v-else>{{ step }}</p>
+                    </div>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+
+            <div v-if="analysis.validation_warning" class="validation-warning">
+              <el-alert
+                title="验证警告"
+                :description="analysis.validation_warning"
+                type="warning"
+                :closable="false"
+                show-icon
+              />
+            </div>
+
+            <div v-if="analysis.llm_model" class="llm-info">
+              <el-tag type="success" size="small">模型: {{ analysis.llm_model }}</el-tag>
+            </div>
+          </el-card>
+        </div>
+
         <el-divider v-if="result.final_decision">最终决策</el-divider>
 
         <div v-if="result.final_decision" class="final-decision">
@@ -156,47 +247,21 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Aim, Document } from '@element-plus/icons-vue'
-import axios from 'axios'
-
-interface AgentAnalysis {
-  agent_name: string
-  agent_type: string
-  action: string
-  confidence: number
-  reasoning: string
-}
-
-interface FinalDecision {
-  action: string
-  consensus: number
-  summary: string
-}
-
-interface StockInfo {
-  stock_name: string
-  trade_date: string
-  close: number
-  pe_ttm: number
-  pb: number
-  total_mv: number
-  circ_mv: number
-  turnover_rate: number
-  volume_ratio: number
-}
-
-interface AnalyzeResult {
-  stock_code: string
-  mode: string
-  agent_analyses: AgentAnalysis[]
-  final_decision: FinalDecision | null
-  stock_info: StockInfo | null
-}
+import { Aim, Document, Coin, MagicStick, DataAnalysis } from '@element-plus/icons-vue'
+import { analyzeStock, type LLMConfig, type AnalyzeResult, type AgentAnalysis } from '@/api/analyze'
 
 const form = ref({
   stock_code: '',
   mode: 'parallel',
   agents: ['buffet', 'graham', 'fisher']
+})
+
+const agentMode = ref<'rule' | 'ai' | 'hybrid'>('rule')
+const llmConfig = ref<LLMConfig>({
+  provider: 'openai',
+  model: 'gpt-4o',
+  temperature: 0.7,
+  max_tokens: 4000
 })
 
 const loading = ref(false)
@@ -229,6 +294,27 @@ const getActionType = (action: string) => {
   return map[action] || 'info'
 }
 
+const formatStepName = (key: string): string => {
+  const names: Record<string, string> = {
+    step1_data_understanding: '第1步：数据理解',
+    step2_philosophy_alignment: '第2步：理念对照',
+    step3_dimension_scores: '第3步：维度评分',
+    step4_risks: '第4步：风险识别',
+    step5_decision_reasoning: '第5步：决策推理',
+    step6_graham_quote: '第6步：格雷厄姆语录'
+  }
+  return names[key] || key
+}
+
+const formatAnalysisMode = (mode: string): string => {
+  const modes: Record<string, string> = {
+    rule: '规则引擎',
+    ai_llm: 'AI增强',
+    hybrid: '混合模式'
+  }
+  return modes[mode] || mode
+}
+
 const handleAnalyze = async () => {
   if (!form.value.stock_code) {
     ElMessage.warning('请输入股票代码')
@@ -244,13 +330,14 @@ const handleAnalyze = async () => {
   result.value = null
 
   try {
-    const response = await axios.post('/api/v1/analyze/', {
+    result.value = await analyzeStock({
       stock_code: form.value.stock_code,
-      mode: form.value.mode,
-      agents: form.value.agents.join(',')
+      mode: form.value.mode as 'parallel' | 'vote' | 'debate',
+      agents: form.value.agents.join(','),
+      agent_mode: agentMode.value,
+      llm_config: agentMode.value === 'ai' ? llmConfig.value : undefined
     })
 
-    result.value = response.data
     ElMessage.success('分析完成')
   } catch (error: any) {
     ElMessage.error(error.response?.data?.detail || '分析失败')
@@ -303,5 +390,70 @@ const handleAnalyze = async () => {
 
 .stock-info-card .el-descriptions__cell {
   padding: 8px 12px;
+}
+
+.mode-selector,
+.ai-config {
+  margin-top: 20px;
+}
+
+.agent-detail-card {
+  margin-top: 16px;
+}
+
+.agent-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.thought-process {
+  margin-bottom: 16px;
+}
+
+.thought-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.thought-steps .step {
+  padding: 12px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+  border-left: 3px solid #409eff;
+}
+
+.thought-steps .step h5 {
+  margin: 0 0 8px 0;
+  color: #409eff;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.thought-steps .step p {
+  margin: 0;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.validation-warning {
+  margin-top: 12px;
+}
+
+.llm-info {
+  margin-top: 12px;
+  text-align: right;
+}
+
+.el-radio-button {
+  margin-right: 8px;
+}
+
+.el-radio-button :deep(.el-radio-button__inner) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 </style>
