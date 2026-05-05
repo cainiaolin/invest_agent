@@ -320,7 +320,11 @@ async def analyze_stock(request: AnalyzeRequest):
                     confidence=float(analysis_result.get("confidence", 0.0)),
                     reasoning=str(analysis_result.get("reasoning", "")),
                     key_metrics=key_metrics,
-                    price_target=analysis_result.get("price_target")
+                    price_target=analysis_result.get("price_target"),
+                    analysis_mode=analysis_result.get("analysis_mode"),
+                    thought_process=analysis_result.get("thought_process"),
+                    llm_model=analysis_result.get("llm_model"),
+                    validation_warning=analysis_result.get("validation_warning")
                 )
                 agent_analyses_models.append(agent_analysis)
 
