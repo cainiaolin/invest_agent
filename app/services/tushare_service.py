@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 import pandas as pd
 from tushare import pro_api
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,38 @@ class TushareService:
 
         self.api = pro_api(token)
         logger.info("Tushare服务初始化完成")
+
+    def _get_latest_trade_date(self) -> Optional[str]:
+        """获取最近的交易日期（格式：YYYYMMDD）"""
+        try:
+            today = datetime.now().strftime('%Y%m%d')
+            df = self.api.trade_cal(
+                exchange='SSE',
+                is_open='1',
+                start_date='20200101',
+                end_date=today,
+                limit=1,
+                fields='cal_date'
+            )
+            if not df.empty:
+                return str(df.iloc[0]['cal_date'])
+        except Exception as e:
+            logger.error(f"获取最近交易日期失败: {e}")
+        return None
+
+    def get_stock_name(self, ts_code: str) -> str:
+        """获取股票名称"""
+        try:
+            formatted = self._format_stock_code(ts_code)
+            df = self.api.stock_basic(
+                ts_code=formatted,
+                fields='ts_code,name'
+            )
+            if not df.empty:
+                return str(df.iloc[0]['name'])
+        except Exception as e:
+            logger.error(f"获取股票名称失败: {e}")
+        return ""
 
     def _format_stock_code(self, stock_code: str) -> str:
         """
@@ -68,18 +101,38 @@ class TushareService:
             formatted_code = self._format_stock_code(stock_code)
             logger.info(f"获取 {formatted_code} 的每日基本面数据")
 
+            # 如果没有指定日期，获取最新交易日
+            if trade_date is None:
+                trade_date = self._get_latest_trade_date()
+                if trade_date:
+                    logger.info(f"使用最近交易日: {trade_date}")
+
             # 在线程池中执行同步API调用
             loop = asyncio.get_event_loop()
-            df = await loop.run_in_executor(
-                None,
-                lambda: self.api.daily_basic(
-                    ts_code=formatted_code,
-                    trade_date=trade_date,
-                    fields="ts_code,trade_date,close,turnover_rate,volume_ratio,pe,"
-                    "pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,"
-                    "free_share,total_mv,circ_mv",
-                ),
-            )
+
+            # 优先使用 ts_code + trade_date 查询（权限要求低）
+            if trade_date:
+                df = await loop.run_in_executor(
+                    None,
+                    lambda: self.api.daily_basic(
+                        ts_code=formatted_code,
+                        trade_date=trade_date,
+                        fields="ts_code,trade_date,close,turnover_rate,volume_ratio,pe,"
+                        "pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,"
+                        "free_share,total_mv,circ_mv",
+                    ),
+                )
+            else:
+                # 回退：仅用 ts_code 查询
+                df = await loop.run_in_executor(
+                    None,
+                    lambda: self.api.daily_basic(
+                        ts_code=formatted_code,
+                        fields="ts_code,trade_date,close,turnover_rate,volume_ratio,pe,"
+                        "pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,"
+                        "free_share,total_mv,circ_mv",
+                    ),
+                )
 
             if df.empty:
                 logger.warning(f"股票 {formatted_code} 的每日基本面数据为空")

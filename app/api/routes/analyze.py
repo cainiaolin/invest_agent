@@ -191,15 +191,23 @@ async def analyze_stock(request: AnalyzeRequest):
 
         # 3a. 获取 Tushare 实时股票数据
         stock_info = None
+        stock_name = ""
+        try:
+            # 获取股票名称
+            stock_name = tushare_service.get_stock_name(request.stock_code)
+            logger.info(f"获取到股票名称: {stock_name}")
+        except Exception:
+            logger.warning("获取股票名称失败", exc_info=True)
+
         try:
             daily_data = await tushare_service.get_daily_basic(request.stock_code)
             daily_df = daily_data.get("daily_basic")
             if daily_df is not None and not daily_df.empty:
                 latest = daily_df.iloc[0]
                 stock_info = StockInfo(
-                    stock_name=f"{request.stock_code}",
+                    stock_name=stock_name or request.stock_code,
                     trade_date=str(latest.get("trade_date", "")),
-                    close=float(latest.get("close", 0)),
+                    close=float(latest.get("close", 0) or 0),
                     pe_ttm=float(latest.get("pe_ttm", 0) or 0),
                     pb=float(latest.get("pb", 0) or 0),
                     total_mv=float(latest.get("total_mv", 0) or 0),
@@ -207,8 +215,9 @@ async def analyze_stock(request: AnalyzeRequest):
                     turnover_rate=float(latest.get("turnover_rate", 0) or 0),
                     volume_ratio=float(latest.get("volume_ratio", 0) or 0),
                 )
-        except Exception as e:
-            logger.warning(f"获取Tushare实时数据失败", exc_info=True)
+                logger.info(f"获取Tushare数据成功: close={stock_info.close}, PE={stock_info.pe_ttm}, PB={stock_info.pb}")
+        except Exception:
+            logger.warning("获取Tushare实时数据失败", exc_info=True)
 
         # 3b. 初始化AI模式相关服务
         llm_service = None
@@ -271,13 +280,25 @@ async def analyze_stock(request: AnalyzeRequest):
                         knowledge_service=knowledge_service
                     )
                     logger.info(f"AI Agent创建成功: {agent.__class__.__name__}")
-            else:
-                agent = get_agent(
-                    name,
-                    mode="rule",
-                    tushare_service=tushare_service
-                )
-            agents.append(agent)
+                elif request.agent_mode == "hybrid":
+                    agent = get_agent(
+                        name,
+                        mode="hybrid",
+                        tushare_service=tushare_service,
+                        llm_service=llm_service,
+                        knowledge_service=knowledge_service
+                    )
+                    logger.info(f"Hybrid Agent创建成功: {agent.__class__.__name__}")
+                else:
+                    agent = get_agent(
+                        name,
+                        mode="rule",
+                        tushare_service=tushare_service
+                    )
+                agents.append(agent)
+            except Exception as e:
+                logger.error(f"创建Agent {name} 失败: {e}", exc_info=True)
+                continue
 
         if not agents:
             raise HTTPException(
