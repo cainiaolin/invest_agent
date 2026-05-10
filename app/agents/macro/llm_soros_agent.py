@@ -42,7 +42,7 @@ class LLMSorosAgent(LLMAgent):
         except Exception as e:
             logger.warning(f"LLM调用失败: {e}，使用规则引擎")
             return await self._fallback_to_rule_engine(state)
-
+        logger.info("soros LM Result: %s", llm_result)   
         result = self._parse_llm_response(llm_result, stock_data)
         result.update({
             "agent_name": self.name,

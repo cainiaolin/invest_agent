@@ -93,7 +93,7 @@ class LLMBuffetAgent(LLMAgent):
             "roic": metrics.get("roic", 0),
             "debt_ratio": metrics.get("debt_ratio", 0),
             "current_ratio": metrics.get("current_ratio", 0),
-            "profit_margin": metrics.get("profit_margin", 0),
+            "profit_margin": metrics.get("net_margin", 0),
             "brand_strength": moat.get("brand_strength", 0),
             "market_share": moat.get("market_share", 0),
             "competitive_advantage": moat.get("competitive_advantage", False)

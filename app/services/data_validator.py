@@ -20,8 +20,8 @@ class DataValidator:
     # Agent关键数据要求
     AGENT_DATA_REQUIREMENTS = {
         "buffet": {
-            "required": ["roe", "debt_ratio", "current_ratio", "profit_margin"],
-            "optional": ["pe_ratio", "pb_ratio", "revenue_growth"],
+            "required": ["roe", "debt_ratio", "current_ratio", "net_margin"],
+            "optional": ["pe_ratio", "pb_ratio", "revenue_growth", "gross_margin"],
             "reason": "巴菲特投资需要评估企业质量和护城河"
         },
         "graham": {
@@ -41,7 +41,7 @@ class DataValidator:
         },
         "dalio": {
             "required": ["debt_ratio", "current_ratio"],
-            "optional": ["roe", "profit_margin", "revenue_growth"],
+            "optional": ["roe", "net_margin", "revenue_growth"],
             "reason": "达利欧关注债务周期"
         },
         "soros": {
