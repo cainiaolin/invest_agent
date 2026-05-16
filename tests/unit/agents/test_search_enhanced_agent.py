@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import asyncio
 
 from app.agents.search_enhanced_agent import SearchEnhancedAgent

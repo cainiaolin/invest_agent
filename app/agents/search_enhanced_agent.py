@@ -31,11 +31,6 @@ class SearchEnhancedAgent(LLMAgent):
             Prompt字符串
         """
         pass
-    """
-    搜索增强Agent基类
-
-    继承LLMAgent，集成搜索服务和信息融合能力，提供基于搜索结果的投资分析。
-    """
 
     def __init__(
         self,
@@ -189,43 +184,8 @@ class SearchEnhancedAgent(LLMAgent):
             knowledge = await self.knowledge.load_knowledge(self.master_name)
 
             # 使用搜索增强进行分析
-            return await self._analyze_with_llm_and_search_enhancement(state, stock_data, knowledge)
+            return await self._analyze_with_search_enhancement(state, stock_data, knowledge)
 
         except Exception as e:
             logger.warning(f"LLM搜索增强分析失败: {type(e).__name__}: {e}，降级到规则引擎")
             return await self._fallback_to_rule_engine(state)
-
-    def _analyze_with_llm_and_search_enhancement(self, state: Dict[str, Any], stock_data: Dict[str, Any], knowledge: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        使用LLM和搜索增强进行分析
-
-        Args:
-            state: 分析状态
-            stock_data: 股票数据
-            knowledge: 知识数据
-
-        Returns:
-            分析结果
-        """
-        # 获取搜索上下文
-        search_context = self._get_search_context(state.get("stock_code", ""), stock_data)
-
-        # 构建增强Prompt
-        cot_prompt = self._build_cot_prompt(stock_data, knowledge, search_context)
-
-        # 进行LLM分析
-        llm_result = self.llm.reason_with_cot(cot_prompt)
-
-        # 解析LLM响应
-        result = self._parse_llm_response(llm_result)
-
-        # 更新结果，添加搜索增强信息
-        result.update({
-            "agent_name": self.name,
-            "analysis_mode": "ai_llm_search_enhanced",
-            "llm_model": self.llm.config.get("model"),
-            "search_enhanced": True,
-            "search_strategy": self.search_strategy
-        })
-
-        return result
