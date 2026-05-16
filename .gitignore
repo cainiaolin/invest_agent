@@ -68,3 +68,6 @@ Thumbs.db
 
 # Claude相关
 .claude/
+
+# Git Worktrees
+.worktrees/
