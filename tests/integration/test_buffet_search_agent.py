@@ -109,6 +109,7 @@ class TestBuffetSearchAgent:
         assert '财务质量' in prompt
         assert '估值' in prompt
 
+    @pytest.mark.asyncio
     @patch('app.agents.value.buffet_search_agent.BuffetSearchAgent._get_enriched_stock_data')
     @patch('app.agents.value.buffet_search_agent.BuffetSearchAgent.knowledge')
     @patch('app.agents.value.buffet_search_agent.BuffetSearchAgent.llm')
