@@ -60,5 +60,6 @@ target-version = "py311"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "asyncio: asyncio marker"
+    "asyncio: asyncio marker",
+    "e2e: end-to-end marker"
 ]
