@@ -96,8 +96,7 @@ class TestAgentSearchConfig:
         assert config.llm_model == "gpt-4o"
 
     @patch.dict('os.environ', {
-        'SEARCH_LLM_MODEL': 'claude-3-sonnet',
-        'SEARCH_MIN_RELIABILITY': '0.8'
+        'SEARCH_LLM_MODEL': 'claude-3-sonnet'
     })
     def test_agent_search_config_from_env(self):
         """测试从环境变量加载配置"""

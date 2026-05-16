@@ -1,7 +1,7 @@
 """搜索策略数据模型"""
 import os
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class SearchStrategy(BaseModel):
@@ -15,36 +15,7 @@ class SearchStrategy(BaseModel):
     min_reliability: float = Field(default=0.6, ge=0.0, le=1.0, description="最低可信度阈值")
     max_results_per_source: int = Field(default=10, ge=1, le=100, description="每个源的最大结果数")
 
-    @field_validator('time_horizon')
-    @classmethod
-    def validate_time_horizon(cls, v):
-        """验证时间范围"""
-        if not isinstance(v, int):
-            raise ValueError("时间范围必须是整数")
-        if v < 1 or v > 365:
-            raise ValueError("时间范围必须在1-365天之间")
-        return v
-
-    @field_validator('min_reliability')
-    @classmethod
-    def validate_min_reliability(cls, v):
-        """验证可信度阈值"""
-        if not isinstance(v, (int, float)):
-            raise ValueError("可信度阈值必须是数字")
-        if v < 0.0 or v > 1.0:
-            raise ValueError("可信度阈值必须在0.0-1.0之间")
-        return v
-
-    @field_validator('max_results_per_source')
-    @classmethod
-    def validate_max_results_per_source(cls, v):
-        """验证最大结果数"""
-        if not isinstance(v, int):
-            raise ValueError("最大结果数必须是整数")
-        if v < 1 or v > 100:
-            raise ValueError("最大结果数必须在1-100之间")
-        return v
-
+    
 
 class AgentSearchConfig(BaseModel):
     """Agent搜索配置数据模型"""
