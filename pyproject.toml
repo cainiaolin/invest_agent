@@ -58,7 +58,6 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-p pytest_asyncio"
 asyncio_mode = "auto"
 markers = [
     "asyncio: asyncio marker"
