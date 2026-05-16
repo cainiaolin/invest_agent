@@ -233,23 +233,6 @@ class TestInformationFusion:
         assert "搜索结果质量：none" in result
         assert "当前搜索结果质量较低" in result
 
-    def test_assess_search_quality_good(self, sample_search_summary_good):
-        """测试高质量搜索评估"""
-        fusion = InformationFusion()
-        quality = fusion._assess_search_quality(sample_search_summary_good)
-        assert quality == "high"
-
-    def test_assess_search_quality_medium(self, sample_search_summary_medium):
-        """测试中等质量搜索评估"""
-        fusion = InformationFusion()
-        quality = fusion._assess_search_quality(sample_search_summary_medium)
-        assert quality == "low"  # high_ratio = 0.0, 所以是low
-
-    def test_assess_search_quality_none(self, sample_search_summary_none):
-        """测试无搜索结果评估"""
-        fusion = InformationFusion()
-        quality = fusion._assess_search_quality(sample_search_summary_none)
-        assert quality == "none"
 
     def test_format_stock_basic_info(self, sample_stock_data):
         """测试股票基本信息格式化"""

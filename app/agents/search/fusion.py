@@ -29,8 +29,8 @@ class InformationFusion:
             - has_search_data: 是否有搜索数据
             - search_quality: 搜索质量评级
         """
-        # 评估搜索质量
-        search_quality = self._assess_search_quality(search_summary)
+        # 使用SearchSummary内置的质量评估
+        search_quality = search_summary.quality_assessment
 
         # 构建返回结果
         result = {
@@ -143,23 +143,4 @@ class InformationFusion:
 
         return "\n".join(info_lines)
 
-    def _assess_search_quality(self, search_summary: SearchSummary) -> str:
-        """
-        评估搜索质量
-
-        Args:
-            search_summary: 搜索结果摘要
-
-        Returns:
-            质量评级：high | medium | low | none
-        """
-        if search_summary.total_results == 0 or search_summary.error:
-            return "none"
-
-        if search_summary.high_ratio >= 0.7:
-            return "high"
-        elif search_summary.high_ratio >= 0.4:
-            return "medium"
-        else:
-            return "low"
 
