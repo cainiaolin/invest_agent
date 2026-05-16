@@ -2,7 +2,6 @@
 from typing import Dict, Any, Union
 from app.models.search import SearchSummary
 from app.services.search.enricher import SearchDataEnricher
-from app.core.state import AnalysisState
 
 
 class InformationFusion:
@@ -164,30 +163,3 @@ class InformationFusion:
         else:
             return "low"
 
-    def create_analysis_state(self, search_summary: SearchSummary,
-                            stock_data: Dict[str, Any],
-                            user_request: str = "") -> AnalysisState:
-        """
-        创建分析状态对象
-
-        Args:
-            search_summary: 搜索结果摘要
-            stock_data: 股票数据
-            user_request: 用户请求（可选）
-
-        Returns:
-            分析状态对象
-        """
-        # 融合数据
-        fusion_result = self.merge(search_summary, stock_data)
-
-        return {
-            "stock_code": search_summary.stock_code,
-            "mode": "parallel",  # 默认并行模式
-            "user_request": user_request or f"分析{stock_data.get('stock_name', search_summary.stock_code)}的投资价值",
-            "agent_analyses": [],  # 初始为空，等待各个Agent分析
-            "debate_round": 0,
-            "debate_history": [],
-            "final_decision": None,
-            "error": None
-        }
