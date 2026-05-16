@@ -1,6 +1,6 @@
 """搜索策略数据模型"""
 import os
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -11,6 +11,7 @@ class SearchStrategy(BaseModel):
     search_market_sentiment: bool = Field(default=True, description="是否搜索市场情绪")
     search_industry: bool = Field(default=True, description="是否搜索行业信息")
     search_competitors: bool = Field(default=True, description="是否搜索竞争对手信息")
+    search_keywords: List[str] = Field(default_factory=list, description="搜索关键词列表")
     time_horizon: int = Field(default=7, ge=1, le=365, description="搜索时间范围（天）")
     min_reliability: float = Field(default=0.6, ge=0.0, le=1.0, description="最低可信度阈值")
     max_results_per_source: int = Field(default=10, ge=1, le=100, description="每个源的最大结果数")
