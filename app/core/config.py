@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     ai_mode_enabled: bool = Field(default=True, description="是否启用AI模式")
     knowledge_base_path: str = Field(default="knowledge", description="知识库路径")
 
+    # Agent个性化搜索配置
+    buffet_search_horizon: int = Field(default=30, description="巴菲特搜索时间范围（天）")
+    graham_search_horizon: int = Field(default=90, description="格雷厄姆搜索时间范围（天）")
+    fisher_search_horizon: int = Field(default=60, description="费雪搜索时间范围（天）")
+    lynch_search_horizon: int = Field(default=14, description="林奇搜索时间范围（天）")
+    soros_search_horizon: int = Field(default=7, description="索罗斯搜索时间范围（天）")
+    dalio_search_horizon: int = Field(default=30, description="达利欧搜索时间范围（天）")
+
 
 class LLMConfig(BaseModel):
     """LLM配置模型"""
