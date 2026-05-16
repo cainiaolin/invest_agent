@@ -114,7 +114,7 @@ class SearchEnhancedAgent(LLMAgent):
             logger.warning(f"获取搜索上下文失败: {type(e).__name__}: {e}")
             return ""
 
-    def _analyze_with_search_enhancement(self, state: Dict[str, Any], stock_data: Dict[str, Any], knowledge: Dict[str, Any]) -> Dict[str, Any]:
+    async def _analyze_with_search_enhancement(self, state: Dict[str, Any], stock_data: Dict[str, Any], knowledge: Dict[str, Any]) -> Dict[str, Any]:
         """
         使用搜索增强进行分析
 

@@ -113,7 +113,7 @@ class TestBuffetSearchAgent:
     @patch('app.agents.value.buffet_search_agent.BuffetSearchAgent.knowledge')
     @patch('app.agents.value.buffet_search_agent.BuffetSearchAgent.llm')
     @patch('app.agents.value.buffet_search_agent.BuffetSearchAgent._get_search_context')
-    async def test_analyze(self, mock_search_context, mock_llm, mock_knowledge, mock_stock_data):
+    async def test_buffet_search_agent_analyze(self, mock_search_context, mock_llm, mock_knowledge, mock_stock_data):
         """测试分析功能"""
         # 模拟数据获取
         mock_stock_data.return_value = {

@@ -195,28 +195,15 @@ class BuffetSearchAgent(SearchEnhancedAgent):
         Returns:
             Dict: 分析结果
         """
-        # 获取股票数据
-        stock_data = await self._get_enriched_stock_data(state.get("stock_code", ""))
+        # 调用基类的搜索增强方法
+        result = await self._analyze_with_search_enhancement(
+            state,
+            await self._get_enriched_stock_data(state.get("stock_code", "")),
+            await self.knowledge.load_knowledge(self.master_name)
+        )
 
-        # 获取知识数据
-        knowledge = await self.knowledge.load_knowledge(self.master_name)
-
-        # 获取搜索上下文
-        search_context = self._get_search_context(state.get("stock_code", ""), stock_data)
-
-        # 构建增强Prompt
-        cot_prompt = self._build_cot_prompt(stock_data, knowledge, search_context)
-
-        # 进行LLM分析
-        llm_result = await self.llm.reason_with_cot(cot_prompt)
-
-        # 解析LLM响应
-        result = self._parse_llm_response(llm_result, stock_data)
-
-        # 更新结果，添加搜索增强信息
+        # 添加额外的上下文信息
         result.update({
-            "search_enhanced": True,
-            "search_strategy": self.search_strategy,
             "analysis_context": analysis_context,
             "search_summary": search_summary
         })
