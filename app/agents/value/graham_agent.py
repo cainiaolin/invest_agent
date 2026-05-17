@@ -189,6 +189,7 @@ class GrahamAgent(BaseAgent):
         basic_eps = float(latest_income.get("basic_eps", 0) or 0)
         total_revenue = float(latest_income.get("total_revenue", 0) or 0)
         oper_cost = float(latest_income.get("oper_cost", 0) or 0)
+        operate_profit = float(latest_income.get("operate_profit", 0) or 0)  # 修正字段名
 
         # 解析资产负债表数据
         balancesheet = fundamentals["balancesheet"]
@@ -213,12 +214,50 @@ class GrahamAgent(BaseAgent):
         net_margin = float(latest_fina.get("netprofit_margin", 0) or 0)
         fina_current_ratio = float(latest_fina.get("current_ratio", 0) or 0)
         debt_to_assets = float(latest_fina.get("debt_to_assets", 0) or 0)
-        revenue_growth = float(latest_fina.get("rev_yoy", 0) or 0)
+
+        # 营收增长率：优先使用Tushare的rev_yoy，如果为0则手动计算
+        revenue_growth_tushare = float(latest_fina.get("rev_yoy", 0) or 0)
+        if revenue_growth_tushare > 0:
+            revenue_growth = revenue_growth_tushare
+        else:
+            # 手动计算营收增长率：获取上一年同期的营收数据
+            try:
+                # 获取历史收入数据（最近8个报告期，以确保能找到不同期间）
+                income_history = await loop.run_in_executor(
+                    None,
+                    lambda: self.tushare.api.income(
+                        ts_code=formatted_code,
+                        fields="end_date,total_revenue",
+                        limit="8"
+                    ),
+                )
+                if len(income_history) >= 2:
+                    current_revenue = float(income_history.iloc[0].get("total_revenue", 0) or 0)
+                    current_end_date = income_history.iloc[0].get("end_date")
+
+                    # 找到第一个不同期间的数据
+                    previous_revenue = 0
+                    for i in range(1, len(income_history)):
+                        prev_end_date = income_history.iloc[i].get("end_date")
+                        if prev_end_date != current_end_date:  # 找到不同期间
+                            previous_revenue = float(income_history.iloc[i].get("total_revenue", 0) or 0)
+                            break
+
+                    if previous_revenue > 0:
+                        revenue_growth = ((current_revenue - previous_revenue) / previous_revenue) * 100
+                    else:
+                        revenue_growth = 0.0
+                else:
+                    revenue_growth = 0.0
+            except:
+                revenue_growth = 0.0
+
         profit_growth = float(latest_fina.get("netprofit_yoy", 0) or 0)
 
         # 衍生指标：优先用fina_indicator，回退到手动计算
         debt_ratio = debt_to_assets if debt_to_assets > 0 else (total_liab / total_assets * 100 if total_assets > 0 else 0)
         current_ratio = fina_current_ratio if fina_current_ratio > 0 else (current_assets / current_liab if current_liab > 0 else 0)
+        operating_margin = (operate_profit / total_revenue * 100) if total_revenue > 0 and operate_profit > 0 else 0  # 使用正确的字段名
 
         # 计算BVPS (每股净资产)
         bvps = (equity / 100000000) if equity > 0 else 0
@@ -237,6 +276,7 @@ class GrahamAgent(BaseAgent):
             "current_ratio": current_ratio,
             "gross_margin": gross_margin,
             "net_margin": net_margin,
+            "operating_margin": operating_margin,
             "revenue_growth": revenue_growth,
             "profit_growth": profit_growth,
         }

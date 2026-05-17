@@ -273,7 +273,7 @@ class TushareService:
                 lambda: self.api.income(
                     ts_code=formatted_code,
                     period=period,
-                    fields="ts_code,ann_date,end_date,report_type,basic_eps,total_revenue,revenue,oper_cost,total_profit,total_cogs,sell_exp,admin_exp,fin_exp"
+                    fields="ts_code,ann_date,end_date,report_type,basic_eps,total_revenue,revenue,oper_cost,operate_profit,total_profit,total_cogs,sell_exp,admin_exp,fin_exp"
                 ),
             )
 
